@@ -1,0 +1,7 @@
+FINISHING PASS for Phase 5A of the Pixelset replica in this directory. A previous Phase 5A run was interrupted by a machine restart near the end. Verified state right now: the code for all six 5A workstreams is present (src/lib/mailer.ts, src/lib/lab.ts, src/lib/picflow.ts, src/lib/media.ts, schema fields for video/RAW/external photos) and `npm run build` PASSES. Do NOT rebuild features from scratch. Your job:
+1. Read PHASE5A-BRIEF.md and spot-check each of its six workstreams in the code (Resend mailer wiring + settings UI, lab fulfillment pipeline, video in galleries, RAW support, editor crop/rotate upgrade, Picflow gallery linking). Fix only what is actually broken or missing; keep changes surgical.
+2. Run `npm run build` again and confirm it passes.
+3. Reseed the demo data pristine (the project's existing seed path) and confirm the demo login demo@pixelset.app / demo1234 works, including the seeded external Picflow demo set.
+4. Smoke test: start the production server briefly and check the home page, the demo gallery with the external set, the editor page, and the settings page showing email/lab connection status. Stop the server when done.
+5. Append a "Phase 5A" section to BUILD-NOTES.md describing what was verified, what you fixed (if anything), and any honest gaps.
+Rules: payments stay mock; photo cloud storage stays excluded; no em dashes in UI copy or in BUILD-NOTES; never write state files in place (temp file + verify + rename).

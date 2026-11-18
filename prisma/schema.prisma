@@ -1,0 +1,1021 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique
+  passwordHash  String
+  name          String
+  businessName  String       @default("")
+  watermarkText String       @default("")
+  // Phase 5A — email sending: overrides env MAIL_FROM when set
+  mailFrom      String       @default("")
+  createdAt     DateTime     @default(now())
+  sessions      Session[]
+  collections   Collection[]
+  folders       Folder[]
+  presets       Preset[]
+  website       Website?
+
+  // Phase 3 — Studio Manager
+  studioProfile     StudioProfile?
+  sessionTypes      SessionType[]
+  bookings          Booking[]
+  contacts          Contact[]
+  contractTemplates ContractTemplate[]
+  contracts         Contract[]
+  invoices          Invoice[]
+  quotes            Quote[]
+  questionnaires    Questionnaire[]
+  projects          Project[]
+  studioMessages    StudioMessage[]
+
+  // Phase 4 — Store, Editor, Mobile App, Extras
+  storeProfile   StoreProfile?
+  priceSheets    PriceSheet[]
+  coupons        Coupon[]
+  giftCards      GiftCard[]
+  orders         Order[]
+  mobileApps     MobileApp[]
+  automations    Automation[]
+  emailTemplates EmailTemplate[]
+  teamMembers    TeamMember[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Folder {
+  id          String       @id @default(cuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  createdAt   DateTime     @default(now())
+  collections Collection[]
+}
+
+model Collection {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folderId  String?
+  folder    Folder?   @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  name      String
+  slug      String    @unique
+  eventDate DateTime?
+  // DRAFT | PRERELEASE | PUBLISHED  (expiry computed from expiresAt)
+  status    String    @default("DRAFT")
+
+  // Design
+  coverStyle    String  @default("classic")
+  coverPhotoId  String?
+  coverVideoUrl String  @default("")
+  focalX        Float   @default(0.5)
+  focalY        Float   @default(0.5)
+  fontPairing   String  @default("editorial")
+  palette       String  @default("paper")
+  gridStyle     String  @default("vertical")
+  thumbSize     String  @default("regular")
+  gridSpacing   String  @default("regular")
+
+  // Privacy
+  password          String  @default("")
+  emailRegistration Boolean @default(false)
+  watermark         Boolean @default(false)
+
+  // Download
+  downloadEnabled Boolean @default(true)
+  pinEnabled      Boolean @default(false)
+  downloadPin     String  @default("")
+  pinUseLimit     Int?
+  pinUseCount     Int     @default(0)
+  freeDownloadCap Int?
+  // csv subset of: original,high3600,web2048,web1024,web640
+  downloadSizes   String  @default("original,high3600,web2048")
+  allowSingle     Boolean @default(true)
+  allowZip        Boolean @default(true)
+  // Phase 5A — separate master switch for video downloads
+  videoDownloadEnabled Boolean @default(true)
+
+  // Expiry
+  expiresAt      DateTime?
+  expiryReminder Boolean   @default(false)
+
+  // Phase 4 — Store + slideshow + mobile app
+  priceSheetId      String?
+  priceSheet        PriceSheet? @relation(fields: [priceSheetId], references: [id], onDelete: SetNull)
+  storeEnabled      Boolean     @default(true)
+  slideshowEnabled  Boolean     @default(true)
+  slideshowMusicUrl String      @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sets          PhotoSet[]
+  photos        Photo[]
+  favoriteLists FavoriteList[]
+  comments      Comment[]
+  activities    Activity[]
+  invites       Invite[]
+  registrations EmailRegistration[]
+  quickShares   QuickShare[]
+  downloadLogs  DownloadLog[]
+  orders        Order[]
+  mobileApp     MobileApp?
+}
+
+model PhotoSet {
+  id              String     @id @default(cuid())
+  collectionId    String
+  collection      Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  name            String
+  order           Int        @default(0)
+  clientExclusive Boolean    @default(false)
+  clientEmail     String     @default("")
+  clientPassword  String     @default("")
+  // Phase 5A — Picflow (or other) linked gallery: photos in this set are
+  // external references synced from this public gallery URL
+  externalSource  String     @default("")
+  externalSyncedAt DateTime?
+  photos          Photo[]
+}
+
+model Photo {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  setId        String
+  set          PhotoSet   @relation(fields: [setId], references: [id], onDelete: Cascade)
+  filename     String
+  url          String
+  isExternal   Boolean    @default(false)
+  width        Int?
+  height       Int?
+  isPrivate    Boolean    @default(false)
+  order        Int        @default(0)
+  // Phase 5A — media types. IMAGE | VIDEO | RAW
+  mediaType    String     @default("IMAGE")
+  durationSec  Float? // videos, when readable via ffprobe
+  posterUrl    String     @default("") // video poster / RAW JPEG preview when generated
+  fileSize     Int? // bytes, stored for videos + RAW originals
+  createdAt    DateTime   @default(now())
+  favorites    Favorite[]
+  comments     Comment[]
+}
+
+model FavoriteList {
+  id             String     @id @default(cuid())
+  collectionId   String
+  collection     Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  clientEmail    String
+  clientName     String     @default("")
+  name           String
+  selectionLimit Int?
+  createdAt      DateTime   @default(now())
+  favorites      Favorite[]
+}
+
+model Favorite {
+  id        String       @id @default(cuid())
+  listId    String
+  list      FavoriteList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  photoId   String
+  photo     Photo        @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  note      String       @default("")
+  createdAt DateTime     @default(now())
+
+  @@unique([listId, photoId])
+}
+
+model Comment {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  photoId      String
+  photo        Photo      @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  authorEmail  String     @default("")
+  authorName   String     @default("")
+  body         String
+  createdAt    DateTime   @default(now())
+}
+
+model Activity {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  // VIEW | FAVORITE | UNFAVORITE | LIST_CREATED | DOWNLOAD | DOWNLOAD_ALL |
+  // COMMENT | EMAIL_REGISTRATION | INVITE_SENT | QUICK_SHARE_CREATED
+  type         String
+  detail       String     @default("")
+  clientEmail  String     @default("")
+  createdAt    DateTime   @default(now())
+}
+
+model Invite {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  email        String
+  message      String     @default("")
+  createdAt    DateTime   @default(now())
+}
+
+model EmailRegistration {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  email        String
+  createdAt    DateTime   @default(now())
+
+  @@unique([collectionId, email])
+}
+
+model QuickShare {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  token        String     @unique
+  photoIds     String // csv of photo ids
+  createdAt    DateTime   @default(now())
+}
+
+model DownloadLog {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  photoId      String     @default("")
+  clientKey    String
+  size         String
+  createdAt    DateTime   @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 — Website
+// ---------------------------------------------------------------------------
+
+model Website {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // free subdomain: rendered at /site/[slug] (yourname.mypixelset.com style)
+  slug            String   @unique
+  template        String   @default("vienna")
+  palette         String   @default("ivory")
+  fontTheme       String   @default("editorial")
+  headerStyle     String   @default("left") // left | center | stacked | minimal
+  logoText        String   @default("")
+  logoUrl         String   @default("")
+  tagline         String   @default("")
+  customDomain    String   @default("")
+  published       Boolean  @default(true)
+  footerText      String   @default("")
+  socialInstagram String   @default("")
+  socialFacebook  String   @default("")
+  socialPinterest String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  pages     SitePage[]
+  posts     BlogPost[]
+  redirects SiteRedirect[]
+  messages  SiteMessage[]
+}
+
+model SitePage {
+  id             String   @id @default(cuid())
+  websiteId      String
+  website        Website  @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  // HOME | PORTFOLIO | ABOUT | EXPERIENCE | PRICING | REVIEWS | BLOG | CONTACT | CLIENT_AREA | CUSTOM
+  type           String
+  title          String
+  slug           String   @default("") // "" = home
+  order          Int      @default(0)
+  visible        Boolean  @default(true) // shown in site navigation
+  blocks         String   @default("[]") // JSON array of { id, type, props }
+  seoTitle       String   @default("")
+  seoDescription String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([websiteId, slug])
+}
+
+model BlogPost {
+  id             String    @id @default(cuid())
+  websiteId      String
+  website        Website   @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  title          String
+  slug           String
+  excerpt        String    @default("")
+  coverUrl       String    @default("")
+  coverAlt       String    @default("")
+  body           String    @default("")
+  status         String    @default("DRAFT") // DRAFT | PUBLISHED
+  publishedAt    DateTime?
+  seoTitle       String    @default("")
+  seoDescription String    @default("")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([websiteId, slug])
+}
+
+model SiteRedirect {
+  id        String   @id @default(cuid())
+  websiteId String
+  website   Website  @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  fromPath  String // e.g. /old-pricing
+  toPath    String // e.g. /pricing
+  createdAt DateTime @default(now())
+
+  @@unique([websiteId, fromPath])
+}
+
+model SiteMessage {
+  id        String   @id @default(cuid())
+  websiteId String
+  website   Website  @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  kind      String   @default("CONTACT") // CONTACT | BOOKING | NEWSLETTER
+  name      String   @default("")
+  email     String   @default("")
+  phone     String   @default("")
+  subject   String   @default("")
+  body      String   @default("")
+  meta      String   @default("") // e.g. preferred date / session type for booking
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Preset {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  settings  String // JSON blob of design/privacy/download/expiry defaults
+  createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Studio Manager
+// ---------------------------------------------------------------------------
+
+model StudioProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // public booking site: /book/[bookingSlug]
+  bookingSlug String @unique
+  welcomeText String @default("")
+
+  // business details
+  businessEmail   String @default("")
+  businessPhone   String @default("")
+  businessAddress String @default("")
+  taxId           String @default("")
+  defaultTaxRate  Float  @default(0)
+
+  // payments (mock connect states + display toggles for client-facing pay pages)
+  pixelsetPaymentsConnected Boolean @default(false)
+  stripeConnected           Boolean @default(false)
+  stripeAccount             String  @default("")
+  paypalConnected           Boolean @default(false)
+  paypalEmail               String  @default("")
+  manualEnabled             Boolean @default(false)
+  manualInstructions        String  @default("")
+  showStripe                Boolean @default(true)
+  showPaypal                Boolean @default(true)
+  showManual                Boolean @default(true)
+
+  googleCalendarSync Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SessionType {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name               String
+  description        String @default("")
+  coverUrl           String @default("")
+  durationMin        Int    @default(60)
+  bufferMin          Int    @default(0)
+  priceCents         Int    @default(0)
+  taxRate            Float  @default(0)
+  // IN_PERSON | ZOOM
+  locationType       String @default("IN_PERSON")
+  location           String @default("")
+  cancellationPolicy String @default("")
+
+  // payment schedule: retainer due at booking, remainder due on session date
+  // NONE | PERCENT | FIXED | FULL
+  retainerType  String @default("NONE")
+  retainerValue Int    @default(0) // percent (0-100) when PERCENT, cents when FIXED
+
+  contractTemplateId String?
+  contractTemplate   ContractTemplate? @relation(fields: [contractTemplateId], references: [id], onDelete: SetNull)
+  questionnaireId    String?
+  questionnaire      Questionnaire?    @relation(fields: [questionnaireId], references: [id], onDelete: SetNull)
+
+  active Boolean @default(true) // regular types: listed on the booking site
+
+  // mini sessions
+  isMini          Boolean @default(false)
+  published       Boolean @default(true) // minis: publish flow gates the direct booking link
+  showBookedSpots Boolean @default(true)
+  waitlistEnabled Boolean @default(false)
+
+  dates    MiniSessionDate[]
+  addOns   SessionAddOn[]
+  bookings Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SessionAddOn {
+  id            String      @id @default(cuid())
+  sessionTypeId String
+  sessionType   SessionType @relation(fields: [sessionTypeId], references: [id], onDelete: Cascade)
+  name          String
+  priceCents    Int         @default(0)
+  description   String      @default("")
+  order         Int         @default(0)
+}
+
+model MiniSessionDate {
+  id            String      @id @default(cuid())
+  sessionTypeId String
+  sessionType   SessionType @relation(fields: [sessionTypeId], references: [id], onDelete: Cascade)
+  date          String // YYYY-MM-DD
+  startTime     String // HH:MM
+  slotLengthMin Int         @default(15)
+  slotCount     Int         @default(8)
+  spotsPerSlot  Int         @default(1)
+  breakEvery    Int         @default(0) // insert a break after every N slots (0 = none)
+  breakMin      Int         @default(0)
+  slots         MiniSlot[]
+}
+
+model MiniSlot {
+  id       String          @id @default(cuid())
+  dateId   String
+  date     MiniSessionDate @relation(fields: [dateId], references: [id], onDelete: Cascade)
+  startsAt DateTime
+  endsAt   DateTime
+  capacity Int             @default(1)
+  order    Int             @default(0)
+  bookings Booking[]
+}
+
+model Contact {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name    String
+  email   String @default("")
+  phone   String @default("")
+  address String @default("")
+  company String @default("")
+  tags    String @default("") // csv
+
+  createdAt DateTime @default(now())
+
+  notes     ContactNote[]
+  bookings  Booking[]
+  invoices  Invoice[]
+  quotes    Quote[]
+  contracts Contract[]
+  projects  Project[]
+  responses QuestionnaireResponse[]
+}
+
+model ContactNote {
+  id        String   @id @default(cuid())
+  contactId String
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime @default(now())
+}
+
+model Booking {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sessionTypeId String?
+  sessionType   SessionType? @relation(fields: [sessionTypeId], references: [id], onDelete: SetNull)
+  slotId        String?
+  slot          MiniSlot?    @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  contactId     String?
+  contact       Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  title    String   @default("") // snapshot of session type name
+  startsAt DateTime
+  endsAt   DateTime
+  // PENDING | CONFIRMED | CANCELLED | WAITLIST | COMPLETED
+  status   String   @default("CONFIRMED")
+
+  totalCents    Int    @default(0)
+  retainerCents Int    @default(0)
+  // UNPAID | RETAINER_PAID | PAID
+  paymentStatus String @default("UNPAID")
+  addOns        String @default("[]") // JSON snapshot [{ name, priceCents }]
+  notes         String @default("")
+  // BOOKING_SITE | MINI | MANUAL
+  source        String @default("MANUAL")
+
+  createdAt DateTime @default(now())
+
+  contract Contract?
+  response QuestionnaireResponse?
+  invoices Invoice[]
+  project  Project?
+}
+
+model ContractTemplate {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+  body   String @default("") // text with {{smart_fields}}
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessionTypes SessionType[]
+  contracts    Contract[]
+}
+
+model Contract {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  templateId String?
+  template   ContractTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  contactId  String?
+  contact    Contact?          @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  bookingId  String?           @unique
+  booking    Booking?          @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  title           String
+  body            String    @default("") // rendered body (smart fields resolved when created/sent)
+  // DRAFT | SENT | SIGNED  (expired + scheduled are derived)
+  status          String    @default("DRAFT")
+  token           String    @unique @default(cuid())
+  expiresAt       DateTime?
+  scheduledSendAt DateTime?
+  sentAt          DateTime?
+
+  // signer 1 (client) — typed signature + capture
+  signerName      String    @default("")
+  signedAt        DateTime?
+  signerIp        String    @default("")
+  signerUserAgent String    @default("")
+
+  // optional second signer
+  secondSignerEmail     String    @default("")
+  secondSignerName      String    @default("")
+  secondSignedAt        DateTime?
+  secondSignerIp        String    @default("")
+  secondSignerUserAgent String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Questionnaire {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+  fields String @default("[]") // JSON [{ id, type: text|textarea|choice|date, label, options, required }]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessionTypes SessionType[]
+  responses    QuestionnaireResponse[]
+}
+
+model QuestionnaireResponse {
+  id              String        @id @default(cuid())
+  questionnaireId String
+  questionnaire   Questionnaire @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+  bookingId       String?       @unique
+  booking         Booking?      @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  contactId       String?
+  contact         Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  respondentName  String        @default("")
+  respondentEmail String        @default("")
+  answers         String        @default("{}") // JSON { fieldId: value }
+  createdAt       DateTime      @default(now())
+}
+
+model Invoice {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  bookingId String?
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  quoteId   String?  @unique
+  quote     Quote?   @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+
+  number    String
+  title     String    @default("")
+  // DRAFT | SENT | PAID  (overdue + partially-paid are derived from instalments)
+  status    String    @default("DRAFT")
+  issueDate DateTime  @default(now())
+  dueDate   DateTime?
+
+  items         String @default("[]") // JSON [{ description, qty, unitCents }]
+  taxRate       Float  @default(0)
+  // NONE | PERCENT | FIXED
+  discountType  String @default("NONE")
+  discountValue Int    @default(0) // percent or cents
+  tipCents      Int    @default(0)
+  notes         String @default("")
+
+  token  String    @unique @default(cuid())
+  sentAt DateTime?
+  paidAt DateTime?
+
+  installments InvoiceInstallment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model InvoiceInstallment {
+  id            String    @id @default(cuid())
+  invoiceId     String
+  invoice       Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  label         String    @default("")
+  dueDate       DateTime
+  amountCents   Int
+  paidAt        DateTime?
+  paymentMethod String    @default("")
+  order         Int       @default(0)
+}
+
+model Quote {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  number String
+  title  String @default("")
+  // DRAFT | SENT | ACCEPTED | DECLINED
+  status String @default("DRAFT")
+
+  items         String @default("[]")
+  taxRate       Float  @default(0)
+  discountType  String @default("NONE")
+  discountValue Int    @default(0)
+  notes         String @default("")
+
+  token      String    @unique @default(cuid())
+  validUntil DateTime?
+  sentAt     DateTime?
+  acceptedAt DateTime?
+  declinedAt DateTime?
+
+  invoice Invoice?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Project {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  bookingId String?  @unique
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  // INQUIRY | BOOKED | IN_PROGRESS | DELIVERED | COMPLETE
+  stage String @default("INQUIRY")
+  order Int    @default(0)
+  notes String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model StudioMessage {
+  id      String  @id @default(cuid())
+  userId  String
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // BOOKING | WAITLIST | CONTRACT | PAYMENT | QUOTE | EMAIL (outbound email log)
+  kind    String  @default("BOOKING")
+  name    String  @default("")
+  email   String  @default("")
+  subject String  @default("")
+  body    String  @default("")
+  meta    String  @default("")
+  read    Boolean @default(false)
+
+  createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Store
+// ---------------------------------------------------------------------------
+
+model StoreProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // automatic tax
+  taxEnabled Boolean @default(false)
+  taxRate    Float   @default(0)
+
+  currency       String @default("USD")
+  digitalLicense String @default("") // Digital Image License text attached to digital sales
+  termsOfSale    String @default("")
+
+  // Phase 5A — lab fulfillment settings (WHCC-style)
+  labEnabled  Boolean @default(false)
+  labName     String  @default("WHCC")
+  labEmail    String  @default("")
+  labEndpoint String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PriceSheet {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+  // SELF | LAB  (lab = WHCC-style automatic fulfillment, mock)
+  fulfillment String @default("SELF")
+  lab         String @default("") // e.g. "WHCC" when fulfillment = LAB
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products    Product[]
+  collections Collection[]
+}
+
+model Product {
+  id           String     @id @default(cuid())
+  priceSheetId String
+  priceSheet   PriceSheet @relation(fields: [priceSheetId], references: [id], onDelete: Cascade)
+
+  name        String
+  // PRINT | CANVAS | METAL | ACRYLIC | WOOD | ALBUM | CARD | DIGITAL
+  category    String @default("PRINT")
+  description String @default("")
+
+  selfFulfilled Boolean @default(true) // false = lab-fulfilled (mock WHCC routing)
+  shippingCents Int     @default(0) // flat shipping for this product (physical only)
+  order         Int     @default(0)
+  active        Boolean @default(true)
+
+  variants   ProductVariant[]
+  orderItems OrderItem[]
+}
+
+model ProductVariant {
+  id         String  @id @default(cuid())
+  productId  String
+  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name       String // e.g. 4×6, 8×10, 16×20 canvas, High-res file
+  priceCents Int     @default(0)
+  order      Int     @default(0)
+}
+
+model Coupon {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  code String
+  // PERCENT | FIXED | FREE_SHIPPING | FREE_PRODUCT
+  type          String  @default("PERCENT")
+  value         Int     @default(0) // percent (0-100) or cents
+  minSpendCents Int     @default(0)
+  active        Boolean @default(true)
+  useLimit      Int?
+  useCount      Int     @default(0)
+  expiresAt     DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, code])
+}
+
+model GiftCard {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  code          String
+  initialCents  Int
+  balanceCents  Int
+  active        Boolean @default(true)
+  recipient     String  @default("")
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, code])
+}
+
+model Order {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  collectionId String?
+  collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+
+  number String
+  // NEW | PROCESSING | SHIPPED | COMPLETED | CANCELLED
+  status String @default("NEW")
+
+  customerName  String @default("")
+  customerEmail String @default("")
+  shippingAddress String @default("")
+
+  subtotalCents Int @default(0)
+  discountCents Int @default(0)
+  shippingCents Int @default(0)
+  taxCents      Int @default(0)
+  giftCardCents Int @default(0) // amount covered by gift card
+  totalCents    Int @default(0) // amount charged to the mock payment method
+
+  couponCode    String @default("")
+  giftCardCode  String @default("")
+  paymentMethod String @default("card") // mock
+  // SELF | LAB | MIXED | DIGITAL
+  fulfillment   String @default("SELF")
+  notes         String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items     OrderItem[]
+  labOrders LabOrder[]
+}
+
+// Phase 5A — lab fulfillment pipeline: one complete lab order payload per
+// lab-routed store order (plus reprint clones), with a real status flow.
+model LabOrder {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // QUEUED | SENT | IN_PRODUCTION | SHIPPED | DELIVERED | REPRINT_REQUESTED
+  status    String  @default("QUEUED")
+  lab       String  @default("WHCC")
+  payload   String  @default("{}") // complete lab order payload JSON
+  isReprint Boolean @default(false)
+  sentAt    DateTime?
+  response  String  @default("") // lab endpoint response or error, verbatim
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OrderItem {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  productName String
+  variantName String @default("")
+  category    String @default("PRINT")
+  photoId     String @default("")
+  photoUrl    String @default("")
+  photoName   String @default("")
+  qty         Int    @default(1)
+  unitCents   Int    @default(0)
+
+  // digital fulfillment: expiring 7-day download link
+  downloadToken   String?   @unique
+  downloadExpires DateTime?
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Mobile Gallery App
+// ---------------------------------------------------------------------------
+
+model MobileApp {
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  collectionId String     @unique
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  slug         String  @unique
+  appName      String
+  accentColor  String  @default("#1c1c1c")
+  contactEmail String  @default("")
+  contactPhone String  @default("")
+  enabled      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Workflow automations
+// ---------------------------------------------------------------------------
+
+model Automation {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name    String
+  // INVOICE_UNPAID | GALLERY_NO_FAVORITES | CONTRACT_UNSIGNED | GALLERY_EXPIRING
+  trigger String
+  conditions String @default("[]") // JSON [{ field, op, value }]
+  actions    String @default("[]") // JSON [{ type, templateKey? }]
+  active     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  runs AutomationRun[]
+}
+
+model AutomationRun {
+  id           String     @id @default(cuid())
+  automationId String
+  automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  targetKey  String // dedup key, e.g. invoice:<id>
+  targetLabel String @default("")
+  // OK | SKIPPED | ERROR
+  status String @default("OK")
+  detail String @default("")
+
+  createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Team roles + email templates
+// ---------------------------------------------------------------------------
+
+model TeamMember {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name  String
+  email String
+  // OWNER | ASSISTANT | SECOND_SHOOTER
+  role  String @default("ASSISTANT")
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, email])
+}
+
+model EmailTemplate {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // INVOICE_REMINDER | GALLERY_NUDGE | CONTRACT_RESEND | GALLERY_EXPIRY | BOOKING_REMINDER
+  key     String
+  subject String
+  body    String
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+}
