@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "NODE_USE_ENV_PROXY=1 next dev",
     "build": "next build",
-    "start": "npx prisma db push && npx prisma db seed && NODE_USE_ENV_PROXY=1 next start",
+    "start": "npx prisma db push && npx prisma db seed && NODE_USE_ENV_PROXY=1 npx next start",
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
     "seed": "tsx prisma/seed.ts"

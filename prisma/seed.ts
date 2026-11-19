@@ -8,6 +8,11 @@ import { seed5b } from "./seed-5b";
 
 const db = new PrismaClient();
 
+// Keep libvips on a short leash: the boot seed runs inside a 512MB instance,
+// and sharp's operation cache + parallel pipelines inflate RSS fast.
+sharp.cache(false);
+sharp.concurrency(1);
+
 function hashPassword(password: string): string {
   const salt = randomBytes(16).toString("hex");
   const hash = scryptSync(password, salt, 64).toString("hex");
@@ -39,6 +44,13 @@ async function generateImage(name: string, w: number, h: number, hue: number, la
 }
 
 async function main() {
+  // Boot guard: on instance restarts the database already has the demo
+  // account, so skip the (heavy) seed entirely. SEED_FORCE=1 rebuilds.
+  const existing = await db.user.findUnique({ where: { email: "demo@pixelset.app" } });
+  if (existing && !process.env.SEED_FORCE) {
+    console.log("Demo account already seeded — skipping seed (set SEED_FORCE=1 to rebuild).");
+    return;
+  }
   // Idempotent: wipe the demo user and rebuild
   await db.user.deleteMany({ where: { email: "demo@pixelset.app" } });
   await rm(SEED_DIR, { recursive: true, force: true });
@@ -1200,7 +1212,12 @@ With gratitude,
 
   // Demo video in the Reception set (generated locally with ffmpeg when
   // available; skipped silently otherwise so the seed never breaks).
-  try {
+  // Skipped on production boot: the ffmpeg subprocess pushes the seed's
+  // peak RSS from ~390MB to ~720MB, which OOM-kills a 512MB instance
+  // before Next can start. Local `npm run seed` still generates it.
+  if (process.env.NODE_ENV === "production") {
+    console.log("  (production boot — demo video generation skipped to fit the memory limit)");
+  } else try {
     const { execFileSync } = await import("child_process");
     const videoPath = path.join(SEED_DIR, "highlight-reel.mp4");
     const posterPath = path.join(SEED_DIR, "highlight-reel-poster.jpg");
