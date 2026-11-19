@@ -1,17 +1,12 @@
 import { PrismaClient } from "@prisma/client";
 import { randomBytes, scryptSync } from "crypto";
-import { mkdir, rm } from "fs/promises";
+import { mkdir, rm, writeFile } from "fs/promises";
 import path from "path";
-import sharp from "sharp";
 import { createWebsiteForUser } from "../src/lib/site-service";
 import { seed5b } from "./seed-5b";
 
 const db = new PrismaClient();
 
-// Keep libvips on a short leash: the boot seed runs inside a 512MB instance,
-// and sharp's operation cache + parallel pipelines inflate RSS fast.
-sharp.cache(false);
-sharp.concurrency(1);
 
 function hashPassword(password: string): string {
   const salt = randomBytes(16).toString("hex");
@@ -23,24 +18,64 @@ function hashPassword(password: string): string {
 // demonstrate the add-by-URL flow; everything else is generated locally).
 const pic = (id: number, w = 1600, h = 1067) => `https://picsum.photos/id/${id}/${w}/${h}`;
 
-// Locally generated demo photos so the demo works offline and downloads are instant.
+// Demo photos are REAL photographs (Lorem Picsum, fixed IDs, rights-clean),
+// downloaded at seed time at exactly the dimensions recorded in the
+// database (one map is the single source of truth for id + size). They
+// used to be generated gradient SVGs with the filename drawn into the
+// image; real photos make the demo galleries read like a photographer's
+// work. Downloads are one file at a time with retries, so the boot seed's
+// memory footprint stays flat (no image pipeline in the seed at all).
 const SEED_DIR = path.join(process.cwd(), "public", "uploads", "seed");
 
-async function generateImage(name: string, w: number, h: number, hue: number, label: string) {
-  const c1 = `hsl(${hue}, 32%, 78%)`;
-  const c2 = `hsl(${(hue + 50) % 360}, 38%, 30%)`;
-  const c3 = `hsl(${(hue + 180) % 360}, 28%, 88%)`;
-  const r = Math.min(w, h);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
-  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/>
-  </linearGradient></defs>
-  <rect width="100%" height="100%" fill="url(#g)"/>
-  <circle cx="${w * 0.72}" cy="${h * 0.28}" r="${r * 0.17}" fill="${c3}" opacity="0.55"/>
-  <circle cx="${w * 0.2}" cy="${h * 0.75}" r="${r * 0.28}" fill="${c2}" opacity="0.35"/>
-  <text x="50%" y="53%" font-family="Georgia, serif" font-size="${r * 0.07}" fill="rgba(255,255,255,0.9)" text-anchor="middle">${label}</text>
-</svg>`;
-  await sharp(Buffer.from(svg)).jpeg({ quality: 88 }).toFile(path.join(SEED_DIR, name));
+const SEED_PHOTOS: Record<string, { id: number; w: number; h: number }> = {
+  "IMG_1001.jpg": { id: 65, w: 1200, h: 800 },
+  "IMG_1002.jpg": { id: 365, w: 800, h: 1200 },
+  "IMG_1003.jpg": { id: 64, w: 1200, h: 800 },
+  "IMG_1004.jpg": { id: 823, w: 1200, h: 800 },
+  "IMG_1005.jpg": { id: 1027, w: 1200, h: 800 },
+  "IMG_1101.jpg": { id: 838, w: 1200, h: 800 },
+  "IMG_1102.jpg": { id: 1011, w: 800, h: 1200 },
+  "IMG_1103.jpg": { id: 152, w: 1200, h: 800 },
+  "IMG_1104.jpg": { id: 1018, w: 1200, h: 800 },
+  "IMG_1105.jpg": { id: 360, w: 1200, h: 800 },
+  "IMG_1106.jpg": { id: 306, w: 1200, h: 800 },
+  "IMG_1201.jpg": { id: 452, w: 1200, h: 800 },
+  "IMG_1202.jpg": { id: 211, w: 800, h: 1200 },
+  "IMG_1203.jpg": { id: 292, w: 1200, h: 800 },
+  "IMG_1204.jpg": { id: 429, w: 1200, h: 800 },
+  "IMG_1205.jpg": { id: 1080, w: 1200, h: 800 },
+  "IMG_1301.jpg": { id: 1005, w: 1200, h: 800 },
+  "IMG_1302.jpg": { id: 550, w: 800, h: 1200 },
+  "IMG_1303.jpg": { id: 1012, w: 1200, h: 800 },
+  "RIV_2001.jpg": { id: 1015, w: 800, h: 1200 },
+  "RIV_2002.jpg": { id: 1035, w: 1200, h: 800 },
+  "RIV_2003.jpg": { id: 1039, w: 800, h: 1200 },
+  "RIV_2004.jpg": { id: 1043, w: 1200, h: 800 },
+  "RIV_2005.jpg": { id: 235, w: 800, h: 1200 },
+  "RIV_2006.jpg": { id: 1044, w: 1200, h: 800 },
+  "blog-tuscany.jpg": { id: 1016, w: 1200, h: 750 },
+  "blog-prep.jpg": { id: 91, w: 1200, h: 750 },
+  "blog-prints.jpg": { id: 431, w: 1200, h: 750 },
+};
+
+async function placeImage(name: string) {
+  const meta = SEED_PHOTOS[name];
+  if (!meta) throw new Error(`seed: no Picsum mapping for ${name}`);
+  const url = `https://picsum.photos/id/${meta.id}/${meta.w}/${meta.h}`;
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 1000) throw new Error("suspiciously small download");
+      await writeFile(path.join(SEED_DIR, name), buf);
+      return;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw new Error(`seed: could not download demo photo ${name} from ${url}: ${lastError}`);
 }
 
 async function main() {
@@ -121,15 +156,11 @@ async function main() {
   });
 
   const photoIds: string[] = [];
-  let hue = 18;
   const makePhotos = async (setId: string, count: number, offset: number) => {
     for (let i = 0; i < count; i++) {
-      const portrait = i % 3 === 1; // mix orientations for the masonry grid
-      const w = portrait ? 1067 : 1600;
-      const h = portrait ? 1600 : 1067;
       const filename = `IMG_${String(offset + i).padStart(4, "0")}.jpg`;
-      await generateImage(filename, w, h, hue, filename.replace(".jpg", ""));
-      hue = (hue + 37) % 360;
+      const { w, h } = SEED_PHOTOS[filename];
+      await placeImage(filename);
       const p = await db.photo.create({
         data: {
           collectionId: wedding.id,
@@ -259,14 +290,10 @@ async function main() {
     data: { collectionId: portraits.id, name: "Golden Hour", order: 0 },
   });
   const portraitIds: string[] = [];
-  let pHue = 95;
   for (let i = 0; i < 6; i++) {
-    const portrait = i % 2 === 0;
-    const w = portrait ? 1067 : 1600;
-    const h = portrait ? 1600 : 1067;
     const filename = `RIV_${String(2001 + i)}.jpg`;
-    await generateImage(filename, w, h, pHue, filename.replace(".jpg", ""));
-    pHue = (pHue + 24) % 360;
+    const { w, h } = SEED_PHOTOS[filename];
+    await placeImage(filename);
     const p = await db.photo.create({
       data: {
         collectionId: portraits.id,
@@ -394,9 +421,9 @@ async function main() {
   }
 
   // Blog posts (stored separately from pages, so they survive template switches).
-  await generateImage("blog-tuscany.jpg", 1600, 1000, 36, "Tuscany");
-  await generateImage("blog-prep.jpg", 1600, 1000, 150, "Getting Ready");
-  await generateImage("blog-prints.jpg", 1600, 1000, 20, "The Print Shelf");
+  await placeImage("blog-tuscany.jpg");
+  await placeImage("blog-prep.jpg");
+  await placeImage("blog-prints.jpg");
   const posts = [
     {
       title: "Emma & James — a Tuscany wedding",

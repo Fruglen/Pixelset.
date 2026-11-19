@@ -191,7 +191,7 @@ export default async function OrderDetailPage({ params }: { params: { id: string
           </div>
           {storeProfile.whiteLabelPackaging && hasLabItems ? (
             <p className="text-xs text-neutral-500 pt-1">
-              White label packaging is on for this store: lab shipments carry no Pixelset or lab branding, only
+              White label packaging is on for this store: lab shipments carry no Pixora or lab branding, only
               your studio name.
             </p>
           ) : null}
@@ -200,7 +200,7 @@ export default async function OrderDetailPage({ params }: { params: { id: string
               {order.labCostCents > 0 && <Row label="Lab costs" value={`−${fmtMoney(order.labCostCents)}`} />}
               {order.feeCents > 0 && <Row label="Estimated processor fee" value={`−${fmtMoney(order.feeCents)}`} />}
               {order.commissionCents > 0 && (
-                <Row label="Pixelset commission (Free plan, on the pre-discount subtotal)" value={`−${fmtMoney(order.commissionCents)}`} />
+                <Row label="Pixora commission (Free plan, on the pre-discount subtotal)" value={`−${fmtMoney(order.commissionCents)}`} />
               )}
               <div className="flex justify-between font-medium text-neutral-900">
                 <span>Your payout</span>

@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { ADD_ONS, PRICING } from "@/lib/pricing";
+import { PIXORA_WORDMARK } from "@/lib/brand-assets";
 
 export const metadata = {
-  title: "Pricing, Pixelset",
-  description: "Simple pricing for Client Gallery, Website, Studio Manager and the full Pixelset Suite.",
+  title: "Pricing, Pixora",
+  description: "Simple pricing for Client Gallery, Website, Studio Manager and the full Pixora Suite.",
 };
 
 // Public Pixieset-style pricing pages, display only; in this replica every
@@ -13,8 +14,9 @@ export default function PricingPage() {
     <div className="min-h-screen bg-white text-ink">
       <header className="border-b border-neutral-200">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="font-display text-xl tracking-tight">
-            Pixelset
+          <Link href="/" aria-label="Pixora home">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={PIXORA_WORDMARK} alt="Pixora" className="h-8 w-auto" />
           </Link>
           <nav className="flex items-center gap-5 text-sm">
             <span className="text-neutral-900 font-medium">Pricing</span>

@@ -4,11 +4,11 @@
 
 :root {
   --g-bg: #ffffff;
-  --g-text: #1c1c1c;
+  --g-text: #1c1917;
   --g-accent: #8a7357;
   --g-muted: #f5f3f0;
-  --g-display: Georgia, "Times New Roman", serif;
-  --g-body: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --g-display: "EB Garamond", Georgia, serif;
+  --g-body: "Nunito Sans", "Segoe UI", system-ui, sans-serif;
 }
 
 html {
@@ -17,7 +17,31 @@ html {
 
 body {
   @apply text-ink bg-white;
-  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: "Nunito Sans", "Segoe UI", system-ui, sans-serif;
+}
+
+/* Checkboxes, radios and range inputs take the product accent by default;
+   an explicit Tailwind accent-* utility on the element still wins. */
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"] {
+  accent-color: #12a37f;
+}
+
+/* Dashboard type scale + gentle page-entry fade (dashboard shell only). */
+.dash h1 {
+  font-weight: 600;
+  letter-spacing: -0.011em;
+}
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.page-enter {
+  animation: pageEnter 0.22s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-enter { animation: none; }
 }
 
 .gallery-root {
@@ -34,28 +58,28 @@ body {
 }
 
 .input {
-  @apply w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-800 focus:ring-1 focus:ring-neutral-800 bg-white text-ink;
+  @apply w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none transition-colors focus:border-brand-500 focus:ring-1 focus:ring-brand-500 bg-white text-ink;
 }
 .btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
 }
 .btn-primary {
-  @apply btn bg-neutral-900 text-white hover:bg-neutral-700;
+  @apply btn bg-brand-500 text-white shadow-sm hover:bg-brand-600 active:bg-brand-700;
 }
 .btn-secondary {
-  @apply btn border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100;
+  @apply btn border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100 hover:border-neutral-400;
 }
 .btn-danger {
   @apply btn border border-red-200 bg-white text-red-600 hover:bg-red-50;
 }
 .card {
-  @apply rounded-lg border border-neutral-200 bg-white;
+  @apply rounded-xl border border-neutral-200/80 bg-white shadow-soft transition-shadow duration-200;
 }
 .label {
   @apply block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1;
 }
 .tab-active {
-  @apply border-b-2 border-neutral-900 text-neutral-900 font-medium;
+  @apply border-b-2 border-brand-500 text-neutral-900 font-medium;
 }
 .tab-inactive {
   @apply border-b-2 border-transparent text-neutral-500 hover:text-neutral-800;

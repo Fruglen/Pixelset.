@@ -34,7 +34,7 @@ export const PRICING: ProductPricing[] = [
         name: "Basic",
         annual: "$8",
         monthly: "$10",
-        features: ["0% store commission", "Custom domain & logo", "Remove Pixelset branding", "Full-resolution downloads", "Unlimited mobile apps", "100 email campaigns/mo"],
+        features: ["0% store commission", "Custom domain & logo", "Remove Pixora branding", "Full-resolution downloads", "Unlimited mobile apps", "100 email campaigns/mo"],
       },
       {
         name: "Plus",
@@ -73,7 +73,7 @@ export const PRICING: ProductPricing[] = [
         annual: "$12",
         monthly: "$15",
         highlight: true,
-        features: ["Unlimited pages, photos & posts", "Custom domain", "Remove Pixelset banner", "Analytics integrations"],
+        features: ["Unlimited pages, photos & posts", "Custom domain", "Remove Pixora banner", "Analytics integrations"],
       },
       {
         name: "Pro",
@@ -138,7 +138,7 @@ export const PRICING: ProductPricing[] = [
   },
   {
     id: "suite",
-    name: "Pixelset Suite",
+    name: "Pixora Suite",
     tagline: "Client Gallery + Website + Studio Manager + Store + Mobile App, bundled.",
     plans: [
       {

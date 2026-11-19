@@ -115,7 +115,7 @@ export default function AccessGroupsSection({
                   <label key={s.id} className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
-                      className="accent-neutral-900"
+                      className="accent-brand-600"
                       checked={g.setIds.split(",").includes(s.id)}
                       onChange={() => patch(g.id, { setIds: toggleCsv(g.setIds, s.id) })}
                     />
@@ -129,7 +129,7 @@ export default function AccessGroupsSection({
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
-                className="accent-neutral-900"
+                className="accent-brand-600"
                 checked={g.canDownload}
                 onChange={(e) => patch(g.id, { canDownload: e.target.checked })}
               />
@@ -143,7 +143,7 @@ export default function AccessGroupsSection({
                     <label key={s.id} className="flex items-center gap-2 text-sm">
                       <input
                         type="checkbox"
-                        className="accent-neutral-900"
+                        className="accent-brand-600"
                         checked={g.downloadSizes.split(",").includes(s.id)}
                         onChange={() => patch(g.id, { downloadSizes: toggleCsv(g.downloadSizes, s.id) })}
                       />

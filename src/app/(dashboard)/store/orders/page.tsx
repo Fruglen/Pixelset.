@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { getStoreProfile } from "@/lib/store";
 import { formatStoreMoney } from "@/lib/store-rates";
 import { formatDateTime } from "@/lib/utils";
+import { EmptyState } from "@/components/empty-state";
+import { StoreIcon } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +52,12 @@ export default async function OrdersPage({ searchParams }: { searchParams: { sta
       </div>
 
       {orders.length === 0 ? (
-        <p className="text-sm text-neutral-400">No orders{filter ? " with this status" : " yet, they appear here when clients buy from a gallery storefront"}.</p>
+        <EmptyState
+          icon={StoreIcon}
+          line={filter ? "No orders with this status." : "No orders yet. Orders appear here when clients buy from a gallery storefront."}
+          ctaLabel="View galleries"
+          ctaHref="/collections"
+        />
       ) : (
         <div className="card divide-y divide-neutral-100">
           {orders.map((o) => (

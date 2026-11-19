@@ -146,7 +146,7 @@ export function PayClient({
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="radio" checked={method === "card"} onChange={() => setMethod("card")} />
             <span>
-              Card, Pixelset Payments (Stripe-powered)
+              Card, Pixora Payments (Stripe-powered)
               {payMethods.live?.stripeLive && (payMethods.live.wallets.length || payMethods.live.bnpl.length) ? (
                 <span className="block text-xs text-neutral-500">
                   Also accepts {[...payMethods.live.wallets, ...payMethods.live.bnpl].join(", ")}

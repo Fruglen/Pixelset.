@@ -3,6 +3,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { COURSES_WAITING_REASON, coursesAvailable, listCourses, listLessons } from "@/lib/courses";
 import { fmtMoney } from "@/lib/studio";
 import { CreateCourse } from "./create-course";
+import { EmptyState } from "@/components/empty-state";
+import { FileTextIcon } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +37,7 @@ export default async function CoursesPage() {
       {available && <CreateCourse />}
 
       {available && courses.length === 0 && (
-        <div className="card p-5 text-sm text-neutral-500">No courses yet. Create your first one above.</div>
+        <EmptyState icon={FileTextIcon} line="No courses yet. Create your first one above." />
       )}
 
       {courses.length > 0 && (

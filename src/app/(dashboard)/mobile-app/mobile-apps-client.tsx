@@ -2,6 +2,8 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { EmptyState } from "@/components/empty-state";
+import { MobileIcon } from "@/components/icons";
 
 type App = {
   id: string;
@@ -150,7 +152,7 @@ export default function MobileAppsClient({
       )}
 
       {apps.length === 0 ? (
-        <p className="text-sm text-neutral-400">No apps yet, create one from any collection.</p>
+        <EmptyState icon={MobileIcon} line="No apps yet. Create one from any collection to give clients a home-screen gallery." />
       ) : (
         <div className="grid md:grid-cols-2 gap-4">
           {apps.map((a) => (

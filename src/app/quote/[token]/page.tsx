@@ -127,7 +127,7 @@ export default async function QuotePage({ params }: { params: { token: string } 
             />
           )}
         </div>
-        <p className="text-center text-xs text-neutral-400 mt-8">{business} · powered by Pixelset</p>
+        <p className="text-center text-xs text-neutral-400 mt-8">{business} · powered by Pixora</p>
       </div>
     </div>
   );

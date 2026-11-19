@@ -97,7 +97,7 @@ export default function PublishButton({
                     : "Email: Not connected. The collection is published and each notification is recorded in Activities, but no email is delivered until RESEND_API_KEY is set."}
                 </p>
                 <label className="flex items-start gap-2 text-sm">
-                  <input type="checkbox" className="mt-0.5 accent-neutral-900" checked={includeRegs} onChange={(e) => setIncludeRegs(e.target.checked)} />
+                  <input type="checkbox" className="mt-0.5 accent-brand-600" checked={includeRegs} onChange={(e) => setIncludeRegs(e.target.checked)} />
                   <span>
                     Notify the {registrations.length} registered email{registrations.length === 1 ? "" : "s"}
                     {registrations.length > 0 && <span className="block text-xs text-neutral-500 font-mono">{registrations.slice(0, 6).join(", ")}{registrations.length > 6 ? ", …" : ""}</span>}

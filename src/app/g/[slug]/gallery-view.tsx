@@ -718,7 +718,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
 
       <footer className="text-center text-xs opacity-50 pb-10">
         {data.brand}
-        {!data.hideBranding && " · Powered by Pixelset"}
+        {!data.hideBranding && " · Powered by Pixora"}
       </footer>
 
       {/* ---------- LIGHTBOX ---------- */}

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { EmptyState } from "@/components/empty-state";
+import { CreditCardIcon } from "@/components/icons";
 
 type Coupon = {
   id: string;
@@ -170,7 +172,11 @@ export default function CouponsClient({ coupons }: { coupons: Coupon[] }) {
       )}
 
       {coupons.length === 0 ? (
-        <p className="text-sm text-neutral-400">No coupons yet.</p>
+        <EmptyState icon={CreditCardIcon} line="No coupons yet. Create one to offer clients a discount on prints and downloads.">
+          <button className="btn-primary mt-5" onClick={() => setCreating(true)}>
+            New coupon
+          </button>
+        </EmptyState>
       ) : (
         <div className="card divide-y divide-neutral-100">
           {coupons.map((c) => (

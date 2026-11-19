@@ -44,7 +44,7 @@ export default async function PlanSettingsPage() {
           <p className="text-sm text-neutral-500 mt-1">
             Volume plans ($48, $64 and $96 a month, billed annually) add IP whitelisting and unlimited login
             sessions. Manage the allowlist and your signed in sessions on the security page. Bandwidth is not
-            metered for any account in Pixelset, so volume plans carry no bandwidth restriction to lift.
+            metered for any account in Pixora, so volume plans carry no bandwidth restriction to lift.
           </p>
         </div>
         <Link href="/settings/security" className="btn-secondary shrink-0">

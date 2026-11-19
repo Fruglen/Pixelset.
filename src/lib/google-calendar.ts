@@ -200,7 +200,7 @@ export async function pushBookingEvent(
   const calendarId = encodeURIComponent(profile.googleCalendarId || "primary");
   const payload = {
     summary: booking.contact?.name ? `${booking.title}, ${booking.contact.name}` : booking.title,
-    description: `Pixelset booking${booking.contact?.email ? ` for ${booking.contact.email}` : ""}. Status: ${booking.status}.`,
+    description: `Pixora booking${booking.contact?.email ? ` for ${booking.contact.email}` : ""}. Status: ${booking.status}.`,
     start: { dateTime: booking.startsAt.toISOString() },
     end: { dateTime: booking.endsAt.toISOString() },
   };

@@ -84,7 +84,7 @@ export async function buildLabPayload(
     customer: { name: order.customerName, email: order.customerEmail },
     shippingAddress: order.shippingAddress,
     // White label packaging (Store Settings): when on, the lab ships with no
-    // Pixelset or lab branding, the studio name only.
+    // Pixora or lab branding, the studio name only.
     packaging: profile?.whiteLabelPackaging
       ? { whiteLabel: true, branding: "none", senderName: studioName }
       : { whiteLabel: false, branding: "standard", senderName: studioName },

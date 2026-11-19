@@ -1,7 +1,7 @@
 import { parseBlocks, type Block } from "./blocks";
 
 // Night build (Website): share a page or a single block as a portable code
-// another Pixelset site (or the same one) can import. The code is the JSON
+// another Pixora site (or the same one) can import. The code is the JSON
 // payload base64url encoded behind a short prefix; blocks are revalidated
 // through parseBlocks on import so a tampered code can never inject
 // unknown block types or fields.

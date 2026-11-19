@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 // Phase 5A, Picflow gallery linking. Fetches a public gallery page, extracts
 // the image URLs it references (img tags, srcset, and JSON blobs in the page),
 // and creates photos in a chosen set as EXTERNAL references. No image file is
-// ever downloaded or copied into Pixelset storage.
+// ever downloaded or copied into Pixora storage.
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUser();
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const res = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; Pixelset gallery link)",
+        "User-Agent": "Mozilla/5.0 (compatible; Pixora gallery link)",
         Accept: "text/html,application/xhtml+xml",
       },
       redirect: "follow",

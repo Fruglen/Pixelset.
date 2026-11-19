@@ -65,6 +65,13 @@ export async function POST(req: NextRequest) {
       destSetId = first.id;
       destinationLabel = `${col.name}, ${first.name}`;
     }
+  } else {
+    // Default destination: the original photo's own set. Label it properly
+    // (this used to return an empty destination string).
+    const homeCol = await db.collection.findUnique({ where: { id: photo.collectionId }, select: { name: true } });
+    const homeSet = await db.photoSet.findUnique({ where: { id: photo.setId }, select: { name: true } });
+    destinationLabel =
+      homeCol && homeSet ? `${homeCol.name}, ${homeSet.name}` : "Same set as the original";
   }
 
   const dataUrl = typeof body.dataUrl === "string" ? body.dataUrl : "";

@@ -51,7 +51,7 @@ export default function ExportIntegrations({ status }: { status: { quickbooks: P
           </a>
         </div>
         <p className="text-[11px] text-neutral-400 mt-2">
-          The files ZIP streams every original stored in Pixelset by gallery and set. Photos linked from another service
+          The files ZIP streams every original stored in Pixora by gallery and set. Photos linked from another service
           are listed in the manifest with their URL.
         </p>
       </div>
@@ -60,7 +60,7 @@ export default function ExportIntegrations({ status }: { status: { quickbooks: P
         <h2 className="font-medium mb-1">Accounting and CRM</h2>
         <p className="text-xs text-neutral-400 mb-3">
           Export files your bookkeeper can import, or sync directly when a connection is configured. Payment amounts are
-          the payments recorded in Pixelset, which are mocked per the owner&rsquo;s payments exclusion.
+          the payments recorded in Pixora, which are mocked per the owner&rsquo;s payments exclusion.
         </p>
         <div className="grid sm:grid-cols-2 gap-2 mb-4">
           {files.map((f) => (

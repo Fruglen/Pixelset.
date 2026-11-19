@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { EmptyState } from "@/components/empty-state";
+import { UsersIcon } from "@/components/icons";
 
 interface ContactRow {
   id: string;
@@ -131,9 +133,15 @@ export function ContactsClient({ contacts }: { contacts: ContactRow[] }) {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-neutral-500 py-8 text-center">
-          {contacts.length === 0 ? "No contacts yet, they're added automatically when someone books." : "No matches."}
-        </p>
+        contacts.length === 0 ? (
+          <EmptyState icon={UsersIcon} line="No contacts yet. They're added automatically when someone books, or add one yourself.">
+            <button className="btn-primary mt-5" onClick={() => setShowCreate(true)}>
+              + Contact
+            </button>
+          </EmptyState>
+        ) : (
+          <p className="text-sm text-neutral-500 py-8 text-center">No matches.</p>
+        )
       ) : (
         <div className="card divide-y divide-neutral-100">
           {filtered.map((c) => (

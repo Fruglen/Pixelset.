@@ -40,7 +40,7 @@ export function watermarkFromUser(u: {
 }): WatermarkSettings {
   return {
     mode: u.watermarkMode === "image" && u.watermarkImageUrl ? "image" : "text",
-    text: u.watermarkText || u.businessName || u.name || "Pixelset",
+    text: u.watermarkText || u.businessName || u.name || "Pixora",
     imageUrl: u.watermarkImageUrl,
     position: u.watermarkPosition || "center",
     opacity: Math.min(100, Math.max(5, u.watermarkOpacity || 40)),

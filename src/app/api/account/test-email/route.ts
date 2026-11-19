@@ -16,10 +16,10 @@ export async function POST() {
   const result = await sendMail({
     userId: user.id,
     to: user.email,
-    subject: "Pixelset test email",
+    subject: "Pixora test email",
     text: `Hi ${user.name},
 
-This is a test email from your Pixelset account. Email sending through Resend is working.
+This is a test email from your Pixora account. Email sending through Resend is working.
 
 If you received this, gallery invites, booking confirmations, invoices, and all other app emails will be delivered for real.`,
   });

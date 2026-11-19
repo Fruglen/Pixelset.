@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PALETTES, FONT_PAIRINGS, COVER_STYLES } from "@/lib/design";
+import { EmptyState } from "@/components/empty-state";
+import { ImagesIcon } from "@/components/icons";
 
 export default function PresetsClient({
   presets,
@@ -45,9 +47,7 @@ export default function PresetsClient({
       </div>
 
       {presets.length === 0 ? (
-        <div className="card p-10 text-center text-sm text-neutral-500">
-          No presets yet. Open a collection’s settings and press “Save as Preset”.
-        </div>
+        <EmptyState icon={ImagesIcon} line="No presets yet. Open a collection's settings and press Save as Preset." ctaLabel="Open collections" ctaHref="/collections" />
       ) : (
         <div className="space-y-3">
           {presets.map((p) => {

@@ -144,7 +144,7 @@ export function GalleryAccountSettings({
           creating them.
         </p>
         <select className="input !w-auto" value={v.defaultPresetId} onChange={(e) => setV({ ...v, defaultPresetId: e.target.value })}>
-          <option value="">No default, Pixelset defaults</option>
+          <option value="">No default, Pixora defaults</option>
           {presets.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}

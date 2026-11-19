@@ -210,7 +210,7 @@ export async function buildAccountExport(userId: string, includeFiles: boolean) 
   zip.file(
     "README.txt",
     [
-      "Pixelset full account export",
+      "Pixora full account export",
       `Exported ${summary.exportedAt}`,
       "",
       "data/csv and data/json: one file per record type, every row that belongs to this account.",

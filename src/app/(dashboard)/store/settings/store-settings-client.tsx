@@ -182,7 +182,7 @@ export default function StoreSettingsClient({
             White label packaging
           </label>
           <p className="text-xs text-neutral-400 mt-1">
-            Lab shipments carry no Pixelset or lab branding, only your studio name on the packing label. The
+            Lab shipments carry no Pixora or lab branding, only your studio name on the packing label. The
             choice is written into every lab order payload.
           </p>
         </div>

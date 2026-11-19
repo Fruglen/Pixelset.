@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 // Night build (Pricing lane): security settings client pieces: the Volume
 // plan picker, the IP allowlist editor and the session list. The research
 // puts IP whitelisting, unlimited login sessions and no bandwidth
-// restrictions on the Volume plans; Pixelset never meters sessions or
+// restrictions on the Volume plans; Pixora never meters sessions or
 // bandwidth, so the allowlist is the working feature.
 
 const money = (c: number) => `$${(c / 100).toFixed(0)}`;
@@ -45,7 +45,7 @@ export function VolumeCard({
       <h2 className="font-medium">Studio Manager Volume plan</h2>
       <p className="text-sm text-neutral-500 mt-1">
         Volume plans (billed annually) add IP whitelisting for sign-ins. Login sessions are unlimited and bandwidth
-        is never metered on any Pixelset account, so those two Volume promises are already true for everyone.
+        is never metered on any Pixora account, so those two Volume promises are already true for everyone.
         Billing is parked, so changes here are simulated and nothing is charged.
       </p>
       <div className="flex items-center gap-2 mt-3 flex-wrap">
@@ -177,7 +177,7 @@ export function SessionsCard({
       <h2 className="font-medium">Login sessions</h2>
       <p className="text-sm text-neutral-500 mt-1">
         Every signed in device. Sessions are unlimited on every plan (the Volume plans promise this in the
-        research, and Pixelset does not meter them for anyone). Revoking a session signs that device out.
+        research, and Pixora does not meter them for anyone). Revoking a session signs that device out.
       </p>
       <ul className="mt-3 divide-y divide-neutral-100 text-sm">
         {sessions.map((s) => (

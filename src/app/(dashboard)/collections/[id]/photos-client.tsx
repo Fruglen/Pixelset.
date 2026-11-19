@@ -649,7 +649,7 @@ export default function PhotosClient({
           <div className="text-sm">
             <p className="font-medium">Upload from your phone</p>
             <p className="text-xs text-neutral-500 mt-1 max-w-md">
-              Scan this code with your phone (signed in to Pixelset) to open the mobile upload screen. Take photos with the
+              Scan this code with your phone (signed in to Pixora) to open the mobile upload screen. Take photos with the
               camera or pick them from your camera roll, they land in this collection.
             </p>
             <a className="text-xs underline mt-2 inline-block" href={`/m/upload/${collection.id}`} target="_blank" rel="noreferrer">
@@ -748,7 +748,7 @@ export default function PhotosClient({
             <p className="font-medium text-sm">Link a Picflow gallery</p>
             <p className="text-xs text-neutral-500">
               Paste a public Picflow gallery URL (e.g. https://glenfru.picflow.com/…). The photos stay hosted
-              on Picflow; Pixelset stores only external references, no copies.
+              on Picflow; Pixora stores only external references, no copies.
             </p>
           </div>
           <div>
@@ -917,7 +917,7 @@ export default function PhotosClient({
                     type="checkbox"
                     checked={selected.has(p.id)}
                     onChange={() => toggleSelect(p.id)}
-                    className="absolute top-2 left-2 h-4 w-4 accent-neutral-900"
+                    className="absolute top-2 left-2 h-4 w-4 accent-brand-600"
                     title="Select for bulk actions"
                   />
                   <div className="absolute top-8 left-2 flex flex-col gap-1 items-start">

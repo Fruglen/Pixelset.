@@ -585,7 +585,7 @@ export default function SettingsClient({
                       <label key={s.id} className="flex items-center gap-2 text-sm">
                         <input
                           type="checkbox"
-                          className="accent-neutral-900"
+                          className="accent-brand-600"
                           checked={sizes.includes(s.id)}
                           onChange={() => toggleSize(s.id)}
                         />
@@ -859,7 +859,7 @@ function Toggle({
     <label className="flex items-start gap-3 cursor-pointer">
       <input
         type="checkbox"
-        className="mt-0.5 h-4 w-4 accent-neutral-900"
+        className="mt-0.5 h-4 w-4 accent-brand-600"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
       />

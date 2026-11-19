@@ -95,7 +95,7 @@ function DomainCard({ initialDomain, info }: { initialDomain: string; info: Doma
               </tbody>
             </table>
             <p className="text-xs text-neutral-400 mt-2">
-              Either record proves the domain is yours. Once verified, visitors to {domain || "your domain"} get your site directly. HTTPS certificates are issued automatically by the hosting layer in front of Pixelset (on demand TLS), so the padlock appears a minute after the domain goes live.
+              Either record proves the domain is yours. Once verified, visitors to {domain || "your domain"} get your site directly. HTTPS certificates are issued automatically by the hosting layer in front of Pixora (on demand TLS), so the padlock appears a minute after the domain goes live.
             </p>
           </div>
           <div className="flex gap-2">

@@ -762,7 +762,7 @@ export function BookingFlow({
                 <input type="radio" name="method" checked={method === "card"} onChange={() => setMethod("card")} />
                 <span>
                   <span className="font-medium">Card</span>
-                  <span className="text-neutral-500">, Pixelset Payments (Stripe-powered)</span>
+                  <span className="text-neutral-500">, Pixora Payments (Stripe-powered)</span>
                 </span>
               </label>
             ) : null}

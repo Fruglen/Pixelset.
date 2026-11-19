@@ -13,16 +13,29 @@ interface Item {
   createdAt: string;
 }
 
-const ICON: Record<string, string> = {
-  BOOKING: "◷",
-  QUOTE_ACCEPTED: "✓",
-  INVOICE_PAID: "$",
-  CONTRACT_SIGNED: "✎",
-  QUESTIONNAIRE_COMPLETED: "☰",
-  LIST_SUBMITTED: "♥",
-  ORDER: "⬡",
-  FORM_SUBMISSION: "✉",
-  MESSAGE: "✉",
+import type { ComponentType } from "react";
+import {
+  BellIcon,
+  CalendarIcon,
+  CheckIcon,
+  ClipboardIcon,
+  CreditCardIcon,
+  HeartIcon,
+  MailIcon,
+  PenIcon,
+  StoreIcon,
+} from "@/components/icons";
+
+const ICON: Record<string, ComponentType<{ className?: string }>> = {
+  BOOKING: CalendarIcon,
+  QUOTE_ACCEPTED: CheckIcon,
+  INVOICE_PAID: CreditCardIcon,
+  CONTRACT_SIGNED: PenIcon,
+  QUESTIONNAIRE_COMPLETED: ClipboardIcon,
+  LIST_SUBMITTED: HeartIcon,
+  ORDER: StoreIcon,
+  FORM_SUBMISSION: MailIcon,
+  MESSAGE: MailIcon,
 };
 
 function ago(iso: string) {
@@ -92,13 +105,13 @@ export function NotificationBell() {
           <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
         </svg>
         {unread > 0 ? (
-          <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-neutral-900 text-white text-[10px] flex items-center justify-center">
+          <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-brand-500 text-white text-[10px] flex items-center justify-center">
             {unread > 99 ? "99+" : unread}
           </span>
         ) : null}
       </button>
       {open ? (
-        <div className="absolute right-0 mt-2 w-80 bg-white border border-neutral-200 rounded-lg shadow-lg z-30">
+        <div className="absolute right-0 mt-2 w-80 bg-white border border-neutral-200 rounded-xl shadow-lift z-30">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-100">
             <span className="text-sm font-medium">Notifications</span>
             {unread > 0 ? (
@@ -111,13 +124,13 @@ export function NotificationBell() {
             {items.length === 0 ? <p className="text-sm text-neutral-500 px-4 py-6 text-center">You are all caught up.</p> : null}
             {items.map((n) => (
               <button key={n.id} onClick={() => go(n)} className={`w-full text-left px-4 py-2.5 hover:bg-neutral-50 flex gap-3 ${n.read ? "" : "bg-neutral-50/60"}`}>
-                <span className="text-neutral-400 w-4 text-center">{ICON[n.kind] ?? "•"}</span>
+                {(() => { const NIcon = ICON[n.kind] ?? BellIcon; return <NIcon className="h-4 w-4 shrink-0 text-neutral-400 mt-0.5" />; })()}
                 <span className="flex-1 min-w-0">
                   <span className={`block text-sm truncate ${n.read ? "" : "font-semibold"}`}>{n.title}</span>
                   {n.body ? <span className="block text-xs text-neutral-500 truncate">{n.body}</span> : null}
                   <span className="block text-[11px] text-neutral-400">{ago(n.createdAt)}</span>
                 </span>
-                {!n.read ? <span className="w-2 h-2 rounded-full bg-blue-600 mt-1.5" /> : null}
+                {!n.read ? <span className="w-2 h-2 rounded-full bg-brand-500 mt-1.5" /> : null}
               </button>
             ))}
           </div>

@@ -48,8 +48,70 @@ const ASPECTS: { id: string; name: string; ratio: number | null }[] = [
   { id: "16:9", name: "16:9", ratio: 16 / 9 },
 ];
 
-function filterString(a: Adjust): string {
-  return `brightness(${a.brightness}%) contrast(${a.contrast}%) saturate(${a.saturation}%) sepia(${a.sepia}%) grayscale(${a.grayscale}%)`;
+/**
+ * Per-pixel adjustment pass (brightness, contrast, saturation, sepia,
+ * grayscale, warmth — applied in that order, matching the CSS filter order
+ * this replaced). The editor used to rely on ctx.filter, which Safari
+ * (notably older versions on Apple devices) does not support on
+ * CanvasRenderingContext2D: there the sliders silently did nothing while
+ * the warmth pixel pass kept working. Routing every adjustment through
+ * this single pixel pass makes preview and full-res save produce the
+ * identical result on every browser.
+ */
+function applyAdjustments(ctx: CanvasRenderingContext2D, w: number, h: number, a: Adjust) {
+  if (
+    a.brightness === 100 && a.contrast === 100 && a.saturation === 100 &&
+    a.sepia === 0 && a.grayscale === 0 && a.warmth === 0
+  ) {
+    return; // neutral: leave the drawn pixels untouched
+  }
+  const data = ctx.getImageData(0, 0, w, h);
+  const px = data.data;
+  const bF = a.brightness / 100;
+  const cF = a.contrast / 100;
+  const s = a.saturation / 100;
+  const sep = a.sepia / 100;
+  const gry = a.grayscale / 100;
+  const shift = a.warmth;
+  // saturate() matrix coefficients (feColorMatrix saturate)
+  const sr = 0.213 + 0.787 * s, sg = 0.715 - 0.715 * s, sb = 0.072 - 0.072 * s;
+  const tr = 0.213 - 0.213 * s, tg = 0.715 + 0.285 * s, tb = 0.072 - 0.072 * s;
+  const ur = 0.213 - 0.213 * s, ug = 0.715 - 0.715 * s, ub = 0.072 + 0.928 * s;
+  for (let i = 0; i < px.length; i += 4) {
+    let r = px[i], g = px[i + 1], b = px[i + 2];
+    // brightness, then contrast (midpoint 127.5)
+    r = (r * bF - 127.5) * cF + 127.5;
+    g = (g * bF - 127.5) * cF + 127.5;
+    b = (b * bF - 127.5) * cF + 127.5;
+    // saturate
+    const r2 = r * sr + g * sg + b * sb;
+    const g2 = r * tr + g * tg + b * tb;
+    const b2 = r * ur + g * ug + b * ub;
+    r = r2; g = g2; b = b2;
+    // sepia (blend identity -> sepia matrix by amount)
+    if (sep > 0) {
+      const rS = 0.393 * r + 0.769 * g + 0.189 * b;
+      const gS = 0.349 * r + 0.686 * g + 0.168 * b;
+      const bS = 0.272 * r + 0.534 * g + 0.131 * b;
+      r += (rS - r) * sep;
+      g += (gS - g) * sep;
+      b += (bS - b) * sep;
+    }
+    // grayscale (blend identity -> luminance by amount)
+    if (gry > 0) {
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      r += (lum - r) * gry;
+      g += (lum - g) * gry;
+      b += (lum - b) * gry;
+    }
+    // warmth (red up / blue down), as the old standalone pass did
+    if (shift !== 0) {
+      r += shift;
+      b -= shift;
+    }
+    px[i] = r; px[i + 1] = g; px[i + 2] = b; // Uint8ClampedArray clamps + rounds
+  }
+  ctx.putImageData(data, 0, 0);
 }
 
 /** Image dimensions after the 90° rotation step. */
@@ -82,7 +144,7 @@ function renderGeometry(img: HTMLImageElement, geo: Geometry): HTMLCanvasElement
   return off;
 }
 
-/** Full pipeline: geometry → crop → filters (+ warmth pixel pass). */
+/** Full pipeline: geometry → crop → adjustment pixel pass. */
 function render(
   canvas: HTMLCanvasElement,
   img: HTMLImageElement,
@@ -107,19 +169,11 @@ function render(
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-  ctx.filter = filterString(a);
   ctx.drawImage(geoCanvas, sx, sy, sw, sh, 0, 0, w, h);
-  ctx.filter = "none";
-  if (a.warmth !== 0) {
-    const data = ctx.getImageData(0, 0, w, h);
-    const px = data.data;
-    const shift = a.warmth;
-    for (let i = 0; i < px.length; i += 4) {
-      px[i] = Math.min(255, Math.max(0, px[i] + shift));
-      px[i + 2] = Math.min(255, Math.max(0, px[i + 2] - shift));
-    }
-    ctx.putImageData(data, 0, 0);
-  }
+  // No ctx.filter anywhere in this pipeline: it is unsupported on older
+  // Safari, where the adjustments silently no-oped. applyAdjustments is a
+  // pure pixel pass, so the 1400px preview and the full-res save agree.
+  applyAdjustments(ctx, w, h, a);
 }
 
 /** Largest centered crop rect with the given aspect ratio, normalized. */
@@ -900,7 +954,7 @@ function Slider({
         max={max}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-neutral-900"
+        className="w-full accent-brand-600"
       />
     </div>
   );

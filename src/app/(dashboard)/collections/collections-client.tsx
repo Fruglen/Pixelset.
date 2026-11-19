@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatDate } from "@/lib/utils";
+import { EmptyState } from "@/components/empty-state";
+import { GalleryIcon, ImagesIcon } from "@/components/icons";
 
 type CollectionItem = {
   id: string;
@@ -218,9 +220,11 @@ export default function CollectionsClient({
         {/* Collection grid */}
         <div className="flex-1">
           {visible.length === 0 ? (
-            <div className="card p-12 text-center text-sm text-neutral-500">
-              No collections here yet. Create one to get started.
-            </div>
+            <EmptyState icon={GalleryIcon} line="No collections here yet. Create your first collection to get started.">
+              <button className="btn-primary mt-5" onClick={() => setShowCreate(true)}>
+                New collection
+              </button>
+            </EmptyState>
           ) : (
             <div className="grid grid-cols-3 gap-5">
               {visible.map((c) => (
@@ -235,8 +239,8 @@ export default function CollectionsClient({
                           className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform"
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-neutral-300 text-4xl">
-                          ▦
+                        <div className="w-full h-full flex items-center justify-center text-neutral-300">
+                          <ImagesIcon className="h-10 w-10" />
                         </div>
                       )}
                     </div>
@@ -329,7 +333,7 @@ export default function CollectionsClient({
               <div>
                 <label className="label">Apply a Collection Preset</label>
                 <select className="input" value={presetId} onChange={(e) => setPresetId(e.target.value)}>
-                  <option value="">No preset, Pixelset defaults</option>
+                  <option value="">No preset, Pixora defaults</option>
                   {/* Phase 5B platform: the account default preset is preselected */}
                   {presets.map((p) => (
                     <option key={p.id} value={p.id}>

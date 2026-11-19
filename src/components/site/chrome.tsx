@@ -96,7 +96,7 @@ export function SiteFooter({ site, pages, basePath }: { site: ChromeSite; pages:
         {site.footerText || `© ${new Date().getFullYear()} ${site.logoText}`}
         {site.customDomain ? <span className="block mt-1">{site.customDomain}</span> : null}
       </p>
-      <p className="site-subtle text-[11px] mt-3 opacity-70">Built with Pixelset</p>
+      <p className="site-subtle text-[11px] mt-3 opacity-70">Built with Pixora</p>
     </footer>
   );
 }

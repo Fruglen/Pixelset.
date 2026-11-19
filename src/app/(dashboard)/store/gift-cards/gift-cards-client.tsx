@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { EmptyState } from "@/components/empty-state";
+import { CreditCardIcon } from "@/components/icons";
 
 type Card = {
   id: string;
@@ -83,7 +85,11 @@ export default function GiftCardsClient({ cards }: { cards: Card[] }) {
       )}
 
       {cards.length === 0 ? (
-        <p className="text-sm text-neutral-400">No gift cards issued yet.</p>
+        <EmptyState icon={CreditCardIcon} line="No gift cards issued yet. Issue one and it can be spent in any of your gallery stores.">
+          <button className="btn-primary mt-5" onClick={() => setCreating(true)}>
+            Issue gift card
+          </button>
+        </EmptyState>
       ) : (
         <div className="card divide-y divide-neutral-100">
           {cards.map((c) => (

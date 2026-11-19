@@ -310,7 +310,7 @@ export function PagesList({ pages, siteSlug, landings }: { pages: PageRow[]; sit
                 const data = await res.json().catch(() => ({}));
                 if (data.code) {
                   await navigator.clipboard.writeText(data.code).catch(() => {});
-                  setNote(`Share code for "${page.title}" copied. Anyone with Pixelset can import it from their Pages list.`);
+                  setNote(`Share code for "${page.title}" copied. Anyone with Pixora can import it from their Pages list.`);
                 }
               }}
             >

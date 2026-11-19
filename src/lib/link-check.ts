@@ -46,7 +46,7 @@ async function checkExternal(url: string): Promise<{ ok: boolean; status: string
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 8000);
     try {
-      const res = await fetch(url, { method, redirect: "follow", signal: ctrl.signal, headers: { "user-agent": "PixelsetLinkChecker/1.0" } });
+      const res = await fetch(url, { method, redirect: "follow", signal: ctrl.signal, headers: { "user-agent": "PixoraLinkChecker/1.0" } });
       return res.status;
     } finally {
       clearTimeout(t);

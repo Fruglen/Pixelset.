@@ -28,7 +28,7 @@ export interface LabOrderView {
   events: { id: string; status: string; note: string; source: string; at: string }[];
 }
 
-const SOURCE: Record<string, string> = { SYSTEM: "Pixelset", PHOTOGRAPHER: "You", LAB: "Lab" };
+const SOURCE: Record<string, string> = { SYSTEM: "Pixora", PHOTOGRAPHER: "You", LAB: "Lab" };
 
 export default function LabPanel({
   orderId,

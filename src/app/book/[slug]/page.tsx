@@ -133,7 +133,7 @@ export default async function BookingSitePage({ params }: { params: { slug: stri
       </main>
 
       <footer className="py-8 text-center text-xs text-neutral-400">
-        {user.businessName || user.name} · powered by Pixelset
+        {user.businessName || user.name} · powered by Pixora
       </footer>
     </div>
   );

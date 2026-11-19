@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { PIXORA_WORDMARK } from "@/lib/brand-assets";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -35,7 +36,10 @@ export default function SignupPage() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-paper px-4">
       <div className="w-full max-w-sm">
-        <h1 className="font-display text-3xl text-center mb-1">Pixelset</h1>
+        <h1 className="mb-1 flex justify-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={PIXORA_WORDMARK} alt="Pixora" className="h-12 w-auto" />
+        </h1>
         <p className="text-center text-sm text-neutral-500 mb-8">
           Create your photographer account
         </p>

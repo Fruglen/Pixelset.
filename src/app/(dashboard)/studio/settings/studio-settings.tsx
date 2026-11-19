@@ -220,7 +220,7 @@ export function StudioSettings({
         ) : (
           <>
             <p className="text-sm text-neutral-600">
-              Connect your Google calendar and Pixelset will push every booking onto it, and read your personal
+              Connect your Google calendar and Pixora will push every booking onto it, and read your personal
               events back as busy time so a client can never book over them.
             </p>
             <a className="btn-primary inline-block" href="/api/studio/google/connect">
@@ -263,7 +263,7 @@ export function StudioSettings({
         <div className="border border-neutral-200 rounded-md p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-medium">Pixelset Payments</p>
+              <p className="text-sm font-medium">Pixora Payments</p>
               <p className="text-xs text-neutral-500 mt-0.5">
                 Stripe-powered cards, Apple Pay and Google Pay · 2.9% + $0.30 per transaction.
               </p>

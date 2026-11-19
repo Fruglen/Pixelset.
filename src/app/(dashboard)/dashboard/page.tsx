@@ -2,6 +2,8 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { formatDateTime } from "@/lib/utils";
+import { EmptyState } from "@/components/empty-state";
+import { GalleryIcon } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -71,13 +73,7 @@ export default async function DashboardHome() {
           </div>
           <div className="space-y-2">
             {collections.length === 0 && (
-              <div className="card p-6 text-sm text-neutral-500">
-                No collections yet.{" "}
-                <Link className="underline" href="/collections">
-                  Create your first collection
-                </Link>
-                .
-              </div>
+              <EmptyState icon={GalleryIcon} line="No collections yet." ctaLabel="Create your first collection" ctaHref="/collections" />
             )}
             {collections.map((c) => (
               <Link

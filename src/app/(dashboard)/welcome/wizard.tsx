@@ -90,7 +90,7 @@ export default function WelcomeWizard({
 
   return (
     <div className="max-w-xl mx-auto">
-      <h1 className="font-display text-3xl mb-1">Welcome to Pixelset, {name.split(" ")[0]}</h1>
+      <h1 className="font-display text-3xl mb-1">Welcome to Pixora, {name.split(" ")[0]}</h1>
       <p className="text-sm text-neutral-500 mb-6">Your free account is ready, no card needed. Let’s set up your first client gallery.</p>
       <ol className="flex gap-4 mb-6 text-xs">
         {steps.map((label, i) => (

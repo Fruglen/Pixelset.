@@ -142,7 +142,7 @@ export default async function MobileAppPage({ params }: { params: { slug: string
 
       <footer className="mt-auto text-center text-xs text-white/30 pb-6">
         {brand}
-        {!hideBranding && " · Powered by Pixelset"}
+        {!hideBranding && " · Powered by Pixora"}
       </footer>
     </div>
   );

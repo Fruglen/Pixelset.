@@ -120,7 +120,7 @@ export async function paymentsCsv(userId: string): Promise<string> {
       Amount: money(p.amountCents),
       Tip: money(p.tipCents),
       Total: money(p.amountCents + p.tipCents),
-      Note: "Mock payment, recorded in Pixelset",
+      Note: "Mock payment, recorded in Pixora",
     }))
   );
 }

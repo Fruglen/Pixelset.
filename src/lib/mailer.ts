@@ -18,7 +18,7 @@ export function resendConnected(): boolean {
 }
 
 export function defaultFrom(): string {
-  return process.env.MAIL_FROM || "Pixelset <onboarding@resend.dev>";
+  return process.env.MAIL_FROM || "Pixora <onboarding@resend.dev>";
 }
 
 /** Base URL used to build absolute links inside real emails. */
