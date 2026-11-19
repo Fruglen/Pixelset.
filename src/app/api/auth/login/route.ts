@@ -20,6 +20,13 @@ export async function POST(req: NextRequest) {
       { status: 403 },
     );
   }
-  await createSession(user.id);
+  // Team member logins bind their TeamMember role to the session; the data
+  // account stays the owner's (getCurrentUser resolves teamOwnerId).
+  let role = "OWNER";
+  if (user.teamOwnerId) {
+    const member = await db.teamMember.findFirst({ where: { loginUserId: user.id } });
+    role = member?.role ?? "ASSISTANT";
+  }
+  await createSession(user.id, role);
   return NextResponse.json({ ok: true });
 }

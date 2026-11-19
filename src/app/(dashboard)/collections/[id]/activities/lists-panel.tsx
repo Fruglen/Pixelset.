@@ -24,6 +24,30 @@ export default function ListsPanel({ lists }: { lists: ListRow[] }) {
   const router = useRouter();
   const [copied, setCopied] = useState("");
   const [open, setOpen] = useState<string | null>(null);
+  const [sent, setSent] = useState<Record<string, string>>({});
+  const [sending, setSending] = useState("");
+
+  async function sendAsDownload(list: ListRow) {
+    setSending(list.id);
+    try {
+      const res = await fetch(`/api/gallery/lists/${list.id}/send-download`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Could not send the download");
+        return;
+      }
+      setSent((m) => ({
+        ...m,
+        [list.id]: `Download link created for ${data.email}: ${window.location.origin}${data.link} (the email goes out when the ZIP is ready, and the link expires in 7 days)`,
+      }));
+    } finally {
+      setSending("");
+    }
+  }
 
   async function copy(list: ListRow) {
     const text = lightroomList(list.favorites.map((f) => f.filename));
@@ -67,6 +91,13 @@ export default function ListsPanel({ lists }: { lists: ListRow[] }) {
               <button className="btn-secondary !py-1 !px-2 text-xs" onClick={() => copy(l)} disabled={l.favorites.length === 0}>
                 {copied === l.id ? "Copied!" : "Copy filenames"}
               </button>
+              <button
+                className="btn-secondary !py-1 !px-2 text-xs"
+                onClick={() => sendAsDownload(l)}
+                disabled={l.favorites.length === 0 || sending === l.id}
+              >
+                {sending === l.id ? "Sending…" : "Send as download"}
+              </button>
               {l.submittedAt && (
                 <button className="btn-secondary !py-1 !px-2 text-xs" onClick={() => reopen(l.id)}>
                   Reopen
@@ -74,6 +105,7 @@ export default function ListsPanel({ lists }: { lists: ListRow[] }) {
               )}
             </div>
           </div>
+          {sent[l.id] && <p className="text-xs text-emerald-700 mt-2 break-all">{sent[l.id]}</p>}
           {open === l.id && (
             <ul className="mt-2 text-xs text-neutral-600 space-y-0.5">
               {l.favorites.map((f) => (

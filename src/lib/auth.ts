@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { db } from "./db";
 
-const SESSION_COOKIE = "pxl_session";
+export const SESSION_COOKIE = "pxl_session";
 const SESSION_DAYS = 30;
 
 export function hashPassword(password: string): string {
@@ -19,10 +19,10 @@ export function verifyPassword(password: string, stored: string): boolean {
   return candidate.length === expected.length && timingSafeEqual(candidate, expected);
 }
 
-export async function createSession(userId: string) {
+export async function createSession(userId: string, role: string = "OWNER") {
   const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
-  await db.session.create({ data: { token, userId, expiresAt } });
+  await db.session.create({ data: { token, userId, role, expiresAt } });
   cookies().set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
@@ -47,7 +47,23 @@ export async function getCurrentUser() {
     include: { user: true },
   });
   if (!session || session.expiresAt < new Date()) return null;
+  // Team member logins resolve to the account owner, so every account-scoped
+  // query (user.id) sees the studio's data. The member's own role travels on
+  // the session row and is enforced by src/lib/team.ts.
+  if (session.user.teamOwnerId) {
+    const owner = await db.user.findUnique({ where: { id: session.user.teamOwnerId } });
+    if (owner) return owner;
+  }
   return session.user;
+}
+
+/** The raw session row for the current request (role, member login), if any. */
+export async function getCurrentSession() {
+  const token = cookies().get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+  const session = await db.session.findUnique({ where: { token } });
+  if (!session || session.expiresAt < new Date()) return null;
+  return session;
 }
 
 export async function requireUser() {

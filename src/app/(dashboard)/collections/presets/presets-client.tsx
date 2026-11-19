@@ -30,6 +30,15 @@ export default function PresetsClient({
     router.refresh();
   }
 
+  async function setAutoPassword(id: string, on: boolean) {
+    await fetch(`/api/presets/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autoPassword: on }),
+    });
+    router.refresh();
+  }
+
   return (
     <div className="max-w-2xl">
       <div className="flex items-center justify-between mb-6">
@@ -78,10 +87,19 @@ export default function PresetsClient({
                         s.pinEnabled ? "PIN required" : null,
                         s.emailRegistration ? "Email gate" : null,
                         s.watermark ? "Watermarked" : null,
+                        s.autoPassword ? "Auto password" : null,
                       ]
                         .filter(Boolean)
                         .join(" · ")}
                     </p>
+                    <label className="flex items-center gap-2 text-xs text-neutral-500 mt-1.5">
+                      <input
+                        type="checkbox"
+                        checked={s.autoPassword === true}
+                        onChange={(e) => setAutoPassword(p.id, e.target.checked)}
+                      />
+                      Auto-generate a fresh gallery password for each collection this preset is applied to
+                    </label>
                   </div>
                 </div>
                 <div className="flex gap-2">

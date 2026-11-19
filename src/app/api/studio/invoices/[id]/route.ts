@@ -109,7 +109,7 @@ ${businessName}`,
     });
   }
   if (body.action === "markPaid") {
-    const denied = permissionError("payments");
+    const denied = await permissionError("payments");
     if (denied) return NextResponse.json({ error: denied }, { status: 403 });
     data.status = "PAID";
     data.paidAt = new Date();
@@ -123,7 +123,7 @@ ${businessName}`,
   // settle the next open instalment (or the full balance) as an in-person
   // card payment and record it like any other payment.
   if (body.action === "tapToPay") {
-    const denied = permissionError("payments");
+    const denied = await permissionError("payments");
     if (denied) return NextResponse.json({ error: denied }, { status: 403 });
     const { recordPayment } = await import("@/lib/studio-flow");
     const { notify } = await import("@/lib/notify");
@@ -177,7 +177,7 @@ ${businessName}`,
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await own(params.id);
   if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const denied = permissionError("delete");
+  const denied = await permissionError("delete");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   await db.invoice.delete({ where: { id: ctx.invoice.id } });
   return NextResponse.json({ ok: true });

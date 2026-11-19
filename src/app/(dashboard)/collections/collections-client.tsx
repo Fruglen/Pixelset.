@@ -26,6 +26,8 @@ const STATUS_STYLES: Record<string, string> = {
   PUBLISHED: "bg-emerald-50 text-emerald-700",
 };
 
+type FolderItem = { id: string; name: string; slug: string | null; isPublic: boolean };
+
 export default function CollectionsClient({
   collections,
   folders,
@@ -34,7 +36,7 @@ export default function CollectionsClient({
 }: {
   defaultPresetId?: string;
   collections: CollectionItem[];
-  folders: { id: string; name: string }[];
+  folders: FolderItem[];
   presets: { id: string; name: string }[];
 }) {
   const router = useRouter();
@@ -63,6 +65,80 @@ export default function CollectionsClient({
   const [busy, setBusy] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [addingFolder, setAddingFolder] = useState(false);
+
+  // Multi-select bulk edit + CSV import + folder sharing
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [bulkPresetId, setBulkPresetId] = useState("");
+  const [bulkFolderId, setBulkFolderId] = useState("__keep");
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkNote, setBulkNote] = useState("");
+  const [showImport, setShowImport] = useState(false);
+  const [csvText, setCsvText] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
+  const [importResult, setImportResult] = useState<{ created: { name: string; slug: string }[]; errors: { row: number; message: string }[] } | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareNote, setShareNote] = useState("");
+
+  const selectedIds = collections.filter((c) => selected[c.id]).map((c) => c.id);
+  const activeFolderObj = folders.find((f) => f.id === activeFolder);
+
+  async function applyBulk() {
+    setBulkBusy(true);
+    setBulkNote("");
+    const payload: Record<string, unknown> = { ids: selectedIds };
+    if (bulkPresetId) payload.presetId = bulkPresetId;
+    if (bulkFolderId === "__none") payload.folderId = null;
+    else if (bulkFolderId !== "__keep") payload.folderId = bulkFolderId;
+    if (bulkStatus) payload.status = bulkStatus;
+    const res = await fetch("/api/collections/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBulkBusy(false);
+    if (!res.ok) return setBulkNote(data.error || "Bulk edit failed");
+    const summary = (data.results as { name: string; changes: string[] }[])
+      .map((r) => `${r.name}: ${r.changes.join(", ")}`)
+      .join(" · ");
+    setBulkNote(`Updated ${data.updated} collection${data.updated === 1 ? "" : "s"}. ${summary}`);
+    setSelected({});
+    router.refresh();
+  }
+
+  async function runImport() {
+    setImportBusy(true);
+    setImportResult(null);
+    const res = await fetch("/api/collections/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ csv: csvText }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setImportBusy(false);
+    if (!res.ok) {
+      setImportResult({ created: [], errors: [{ row: 0, message: data.error || "Import failed" }] });
+      return;
+    }
+    setImportResult({ created: data.created ?? [], errors: data.errors ?? [] });
+    router.refresh();
+  }
+
+  async function setFolderSharing(folder: FolderItem, isPublic: boolean) {
+    setShareBusy(true);
+    setShareNote("");
+    const res = await fetch(`/api/folders/${folder.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isPublic }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setShareBusy(false);
+    if (!res.ok) return setShareNote("Could not update folder sharing");
+    setShareNote(isPublic ? "Folder share link is on." : "Folder share link is off.");
+    router.refresh();
+  }
 
   const visible =
     activeFolder === "all"
@@ -151,11 +227,51 @@ export default function CollectionsClient({
           <Link href="/collections/presets" className="btn-secondary">
             View Presets
           </Link>
+          <button className="btn-secondary" onClick={() => { setShowImport(true); setImportResult(null); }}>
+            Import CSV
+          </button>
           <button className="btn-primary" onClick={() => setShowCreate(true)}>
             + New Collection
           </button>
         </div>
       </div>
+
+      {/* Bulk edit bar */}
+      {selectedIds.length > 0 && (
+        <div className="card p-3 mb-5 flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">{selectedIds.length} selected</span>
+          <select className="input !w-48 !py-1.5 text-sm" value={bulkPresetId} onChange={(e) => setBulkPresetId(e.target.value)}>
+            <option value="">Apply preset…</option>
+            {presets.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <select className="input !w-44 !py-1.5 text-sm" value={bulkFolderId} onChange={(e) => setBulkFolderId(e.target.value)}>
+            <option value="__keep">Keep folder</option>
+            <option value="__none">No folder</option>
+            {folders.map((f) => (
+              <option key={f.id} value={f.id}>
+                Move to {f.name}
+              </option>
+            ))}
+          </select>
+          <select className="input !w-40 !py-1.5 text-sm" value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)}>
+            <option value="">Keep status</option>
+            <option value="DRAFT">Draft</option>
+            <option value="PRERELEASE">Pre-release</option>
+            <option value="PUBLISHED">Published</option>
+          </select>
+          <button className="btn-primary !py-1.5" onClick={applyBulk} disabled={bulkBusy}>
+            {bulkBusy ? "Applying…" : "Apply to selected"}
+          </button>
+          <button className="btn-secondary !py-1.5" onClick={() => setSelected({})}>
+            Clear
+          </button>
+        </div>
+      )}
+      {bulkNote && <p className="text-sm text-neutral-600 mb-5">{bulkNote}</p>}
 
       <div className="flex gap-8">
         {/* Folders */}
@@ -215,6 +331,36 @@ export default function CollectionsClient({
               + New folder
             </button>
           )}
+
+          {/* One share link for the whole folder */}
+          {activeFolderObj && (
+            <div className="mt-6 border-t border-neutral-100 pt-4">
+              <p className="label">Folder share link</p>
+              <label className="flex items-center gap-2 text-sm mt-1">
+                <input
+                  type="checkbox"
+                  checked={activeFolderObj.isPublic}
+                  disabled={shareBusy}
+                  onChange={(e) => setFolderSharing(activeFolderObj, e.target.checked)}
+                />
+                Share this folder
+              </label>
+              {activeFolderObj.isPublic && activeFolderObj.slug ? (
+                <p className="text-xs text-neutral-500 mt-2 break-all">
+                  {typeof window !== "undefined" ? window.location.origin : ""}/folder/{activeFolderObj.slug}
+                  <span className="block text-neutral-400 mt-1">
+                    Anyone with the link sees this folder&rsquo;s published galleries. Each gallery keeps its
+                    own password.
+                  </span>
+                </p>
+              ) : (
+                <p className="text-xs text-neutral-400 mt-2">
+                  Off: the folder is only an organising tool in your dashboard.
+                </p>
+              )}
+              {shareNote && <p className="text-xs text-neutral-500 mt-1">{shareNote}</p>}
+            </div>
+          )}
         </aside>
 
         {/* Collection grid */}
@@ -228,7 +374,18 @@ export default function CollectionsClient({
           ) : (
             <div className="grid grid-cols-3 gap-5">
               {visible.map((c) => (
-                <div key={c.id} className="card overflow-hidden group">
+                <div key={c.id} className="card overflow-hidden group relative">
+                  <label
+                    className="absolute top-2 left-2 z-10 flex items-center gap-1 bg-white/90 rounded px-1.5 py-1 text-xs shadow-sm cursor-pointer"
+                    title="Select for bulk edit"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selected[c.id])}
+                      onChange={(e) => setSelected((m) => ({ ...m, [c.id]: e.target.checked }))}
+                    />
+                    Select
+                  </label>
                   <Link href={`/collections/${c.id}`} className="block">
                     <div className="aspect-[4/3] bg-neutral-100 overflow-hidden">
                       {c.cover ? (
@@ -365,6 +522,57 @@ export default function CollectionsClient({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* CSV import modal: one collection per row (volume workflow) */}
+      {showImport && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto">
+            <h2 className="font-display text-xl">Import collections from CSV</h2>
+            <p className="text-sm text-neutral-500">
+              One collection per row. Header row: <span className="font-mono text-xs">name,eventDate,folder,password,pin,preset,status</span>{" "}
+              (only name is required). Folders are created when missing, presets are matched by name, and every
+              row reports its own result.
+            </p>
+            <input
+              type="file"
+              accept=".csv,text/csv,text/plain"
+              className="text-sm"
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                if (f) setCsvText(await f.text());
+              }}
+            />
+            <textarea
+              className="input h-40 font-mono text-xs"
+              value={csvText}
+              onChange={(e) => setCsvText(e.target.value)}
+              placeholder={"name,eventDate,folder,password,pin,preset,status\nSpring Minis A,2026-04-12,Minis,,,Standard,DRAFT"}
+            />
+            {importResult && (
+              <div className="text-sm space-y-1">
+                {importResult.created.length > 0 && (
+                  <p className="text-emerald-700">
+                    Created {importResult.created.length}: {importResult.created.map((c) => c.name).join(", ")}
+                  </p>
+                )}
+                {importResult.errors.map((e) => (
+                  <p key={e.row} className="text-red-600">
+                    Row {e.row}: {e.message}
+                  </p>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" className="btn-secondary" onClick={() => setShowImport(false)}>
+                Close
+              </button>
+              <button className="btn-primary" onClick={runImport} disabled={importBusy || !csvText.trim()}>
+                {importBusy ? "Importing…" : "Import"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

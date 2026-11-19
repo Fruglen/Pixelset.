@@ -12,7 +12,7 @@ async function owned(id: string) {
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const coupon = await owned(params.id);
   if (!coupon) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const denied = permissionError("manage_store");
+  const denied = await permissionError("manage_store");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const body = await req.json();
   const data: Record<string, unknown> = {};
@@ -24,7 +24,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const coupon = await owned(params.id);
   if (!coupon) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const denied = permissionError("manage_store");
+  const denied = await permissionError("manage_store");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   await db.bookingCoupon.delete({ where: { id: coupon.id } });
   return NextResponse.json({ ok: true });

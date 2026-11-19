@@ -8,7 +8,7 @@ import { STORE_CURRENCIES } from "@/lib/store-rates";
 export async function PATCH(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = permissionError("settings");
+  const denied = await permissionError("settings");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
 
   const profile = await getStoreProfile(user.id);

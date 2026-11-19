@@ -47,7 +47,6 @@ export default function StoreSettingsClient({
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
 
-  const labConnected = labEnabled && Boolean(labEndpoint) && labKeyPresent;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -139,14 +138,13 @@ export default function StoreSettingsClient({
       <div className="card p-5 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">Lab fulfillment</h2>
-          <span
-            className={`text-xs px-2 py-1 rounded-full ${
-              labConnected ? "bg-emerald-50 text-emerald-700" : "bg-neutral-100 text-neutral-500"
-            }`}
-          >
-            {labConnected ? `Connected to ${labName || "lab"}` : "No lab connected"}
-          </span>
+          <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-700">Coming Soon</span>
         </div>
+        <p className="text-sm text-neutral-500">
+          Print lab fulfillment is coming soon. The lab connection settings below are saved with your store,
+          and sending orders to a print lab switches on when labs launch.
+        </p>
+        <fieldset disabled className="space-y-3 opacity-60">
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={labEnabled} onChange={(e) => setLabEnabled(e.target.checked)} />
           Enable sending lab orders to the lab API
@@ -186,6 +184,7 @@ export default function StoreSettingsClient({
             choice is written into every lab order payload.
           </p>
         </div>
+        </fieldset>
       </div>
 
       <div className="card p-5 space-y-3">

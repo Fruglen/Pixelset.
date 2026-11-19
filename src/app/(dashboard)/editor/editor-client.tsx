@@ -927,16 +927,17 @@ export default function EditorClient({ collections, destinations = [], aiConnect
                 {error && <span className="text-sm text-red-600">{error}</span>}
               </div>
 
-              {/* Open-source AI tools: wired to AI_TOOLS_ENDPOINT. With no
-                  endpoint connected this panel says so plainly and the
-                  tools stay off (nothing is faked). */}
+              {/* Open-source AI tools: wired to AI_TOOLS_ENDPOINT underneath,
+                  presented as Coming Soon until an endpoint is connected
+                  (owner's call, Nov 19, 2026: the hosting costs money, so the
+                  tools stay labelled rather than half-live). */}
               <div className="card p-4">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="text-sm font-medium">AI tools</p>
                   {aiToolsConnected ? (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-brand-50 text-brand-700">Connected</span>
                   ) : (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-500">Not connected</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">Coming Soon</span>
                   )}
                 </div>
                 {aiToolsConnected ? (
@@ -960,9 +961,9 @@ export default function EditorClient({ collections, destinations = [], aiConnect
                   </>
                 ) : (
                   <p className="text-sm text-neutral-500 mt-2">
-                    Background removal, object removal, upscaling and face restore run on an open source AI
-                    endpoint. It is not connected yet, so these tools are off rather than faked. Once the
-                    endpoint is connected, this panel lights up.
+                    Coming soon: background removal, object removal, upscaling and face restore, powered by
+                    open source AI. The wiring is already built; the tools switch on as soon as the AI
+                    endpoint is connected.
                   </p>
                 )}
                 {aiToolNote ? <p className="text-sm text-neutral-600 mt-2">{aiToolNote}</p> : null}

@@ -42,7 +42,7 @@ export default async function CollectionsPage() {
     <CollectionsClient
       defaultPresetId={user.galleryDefaultPresetId}
       collections={items}
-      folders={folders.map((f) => ({ id: f.id, name: f.name }))}
+      folders={folders.map((f) => ({ id: f.id, name: f.name, slug: f.slug, isPublic: f.isPublic }))}
       presets={presets.map((p) => ({ id: p.id, name: p.name }))}
     />
     </>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { slugify, generatePin } from "@/lib/utils";
+import { slugify, generatePassword, generatePin } from "@/lib/utils";
 import { PRESET_FIELDS } from "@/lib/design";
 
 export async function POST(req: NextRequest) {
@@ -36,6 +36,8 @@ export async function POST(req: NextRequest) {
           if (field in parsed) presetData[field] = parsed[field];
         }
         if (presetData.pinEnabled) presetData.downloadPin = generatePin();
+        // Preset option: a fresh auto-generated gallery password per collection.
+        if (parsed.autoPassword === true) presetData.password = generatePassword();
       } catch {
         presetData = {};
       }

@@ -13,7 +13,7 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = permissionError("upload");
+  const denied = await permissionError("upload");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
 
   const body = await req.json();

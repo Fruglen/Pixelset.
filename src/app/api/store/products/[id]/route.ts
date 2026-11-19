@@ -15,7 +15,7 @@ async function owned(id: string) {
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const product = await owned(params.id);
   if (!product) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const denied = permissionError("manage_store");
+  const denied = await permissionError("manage_store");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
 
   const body = await req.json();
@@ -71,7 +71,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const product = await owned(params.id);
   if (!product) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const denied = permissionError("manage_store");
+  const denied = await permissionError("manage_store");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   await db.product.delete({ where: { id: product.id } });
   return NextResponse.json({ ok: true });

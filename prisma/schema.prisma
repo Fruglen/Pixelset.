@@ -12,6 +12,9 @@ model User {
   email         String       @unique
   passwordHash  String
   name          String
+  // Team member login accounts: when set, this User is a team member's own
+  // login for the account owned by this user id (see TeamMember.loginUserId).
+  teamOwnerId   String?
   businessName  String       @default("")
   watermarkText String       @default("")
   // Phase 5A — email sending: overrides env MAIL_FROM when set
@@ -91,6 +94,10 @@ model Session {
   token     String   @unique
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Role bound to this session at login: OWNER for the account owner, or the
+  // team member's role for member logins (member sessions cannot be upgraded
+  // by changing cookies; see src/lib/team.ts effectiveRole).
+  role      String   @default("OWNER")
   expiresAt DateTime
   createdAt DateTime @default(now())
 }
@@ -1251,6 +1258,12 @@ model TeamMember {
   email String
   // OWNER | ASSISTANT | SECOND_SHOOTER
   role  String @default("ASSISTANT")
+
+  // Real login: the member's own User account (created when they accept the
+  // invite and set a password), plus the pending invite token.
+  loginUserId     String?   @unique
+  inviteToken     String?   @unique
+  inviteExpiresAt DateTime?
 
   createdAt DateTime @default(now())
 

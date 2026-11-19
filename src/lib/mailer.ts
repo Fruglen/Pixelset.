@@ -10,6 +10,7 @@ import { db } from "./db";
 
 export interface MailResult {
   sent: boolean;
+  id?: string; // the provider's message id on a real send (proof of delivery hand-off)
   error?: string; // provider or validation error, verbatim, when a real send failed
 }
 
@@ -76,7 +77,7 @@ export async function sendMail(opts: {
   try {
     const resend = new Resend(key);
     const from = opts.from || (await fromFor(opts.userId));
-    const { error } = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from,
       to,
       subject: opts.subject,
@@ -84,7 +85,7 @@ export async function sendMail(opts: {
       html: opts.html || textToHtml(opts.text),
     });
     if (error) return { sent: false, error: `${error.name}: ${error.message}` };
-    return { sent: true };
+    return { sent: true, id: data?.id };
   } catch (e) {
     return { sent: false, error: e instanceof Error ? e.message : String(e) };
   }
@@ -95,7 +96,7 @@ export async function sendMail(opts: {
  * Activity detail). Keeps the UI truthful about what actually happened.
  */
 export function deliveryNote(result: MailResult): string {
-  if (result.sent) return "Delivered via Resend";
+  if (result.sent) return result.id ? `Delivered via Resend (id ${result.id})` : "Delivered via Resend";
   if (result.error) return `Email send failed: ${result.error}`;
   return "Logged only, no email service connected";
 }

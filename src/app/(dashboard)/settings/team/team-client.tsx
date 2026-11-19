@@ -9,7 +9,7 @@ const ROLE_LABELS: Record<string, string> = {
   SECOND_SHOOTER: "Second Shooter",
 };
 
-type Member = { id: string; name: string; email: string; role: string };
+type Member = { id: string; name: string; email: string; role: string; hasLogin: boolean; invitePending: boolean };
 
 export default function TeamClient({
   owner,
@@ -27,10 +27,12 @@ export default function TeamClient({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("ASSISTANT");
   const [error, setError] = useState("");
+  const [inviteNote, setInviteNote] = useState("");
 
   async function invite(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setInviteNote("");
     const res = await fetch("/api/team", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -40,6 +42,29 @@ export default function TeamClient({
     if (!res.ok) return setError(json.error || "Could not add member");
     setName("");
     setEmail("");
+    if (json.invite) {
+      setInviteNote(
+        json.invite.emailed
+          ? "Invite email sent. They set their own password from the link and sign in with their role's access."
+          : `Email is not connected, so share this set-password link by hand: ${json.invite.link}`
+      );
+    }
+    router.refresh();
+  }
+
+  async function resendInvite(id: string) {
+    const res = await fetch(`/api/team/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "resendInvite" }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return alert(json.error || "Could not resend the invite");
+    setInviteNote(
+      json.invite?.emailed
+        ? "Fresh invite email sent."
+        : `Email is not connected, share this set-password link by hand: ${json.invite?.link ?? ""}`
+    );
     router.refresh();
   }
 
@@ -97,6 +122,20 @@ export default function TeamClient({
                 <p className="text-sm font-medium">{m.name}</p>
                 <p className="text-xs text-neutral-400">{m.email}</p>
               </div>
+              {m.hasLogin ? (
+                <span className="text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">Login active</span>
+              ) : m.invitePending ? (
+                <>
+                  <span className="text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">Invite sent</span>
+                  <button className="text-xs underline text-neutral-500" onClick={() => resendInvite(m.id)}>
+                    Resend
+                  </button>
+                </>
+              ) : (
+                <button className="text-xs underline text-neutral-500" onClick={() => resendInvite(m.id)}>
+                  Send login invite
+                </button>
+              )}
               <select className="input !w-44" value={m.role} onChange={(e) => setMemberRole(m.id, e.target.value)}>
                 <option value="ASSISTANT">Assistant</option>
                 <option value="SECOND_SHOOTER">Second Shooter</option>
@@ -126,7 +165,12 @@ export default function TeamClient({
           </div>
           <button className="btn-primary">Invite</button>
           {error && <p className="text-sm text-red-600 w-full">{error}</p>}
+          {inviteNote && <p className="text-sm text-neutral-600 w-full break-all">{inviteNote}</p>}
         </form>
+        <p className="text-xs text-neutral-400 mt-3">
+          Invited members get their own sign-in: the invite link lets them set a password, and their access is
+          limited to their role below. Changing a role applies at their next sign-in.
+        </p>
       </div>
 
       <div className="card p-5">

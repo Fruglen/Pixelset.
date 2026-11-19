@@ -26,5 +26,5 @@ If you received this, gallery invites, booking confirmations, invoices, and all 
   if (!result.sent) {
     return NextResponse.json({ error: result.error || "The provider did not accept the message" }, { status: 502 });
   }
-  return NextResponse.json({ ok: true, to: user.email });
+  return NextResponse.json({ ok: true, to: user.email, resendId: result.id ?? null });
 }

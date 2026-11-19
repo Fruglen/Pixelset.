@@ -1,56 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { applyLabStatus, createLabOrder, LAB_STATUSES, sendLabOrder } from "@/lib/lab";
 
-// Phase 5A, lab order actions on a store order:
-//   { action: "create" }                     generate the payload (orders placed before 5A)
-//   { action: "send", labOrderId }           POST the payload to the configured lab now
-//   { action: "reprint" }                    clone the payload with the reprint flag
-//   { action: "setStatus", labOrderId, status }  move the lab order through the status flow
+// Phase 5A, lab order actions on a store order (create / send / reprint /
+// setStatus) — PARKED behind Coming Soon (owner's call, Nov 19, 2026).
+// Print lab fulfillment is presented as Coming Soon and the lab order path
+// is blocked with that message. The complete pipeline (payload generation,
+// Prodigi adapter, status timeline) stays in src/lib/lab.ts, dormant; the
+// previous action dispatch for this route is in git history and comes back
+// with the lab launch.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const order = await db.order.findFirst({ where: { id: params.id, userId: user.id } });
   if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  const body = await req.json();
-  const action = String(body.action ?? "");
-
-  if (action === "create" || action === "reprint") {
-    const labOrder = await createLabOrder(order.id, { reprint: action === "reprint" });
-    if (!labOrder) {
-      return NextResponse.json({ error: "This order has no lab-fulfilled items" }, { status: 400 });
-    }
-    return NextResponse.json({ ok: true, labOrderId: labOrder.id });
-  }
-
-  const labOrderId = String(body.labOrderId ?? "");
-  const labOrder = await db.labOrder.findFirst({ where: { id: labOrderId, orderId: order.id } });
-  if (!labOrder) return NextResponse.json({ error: "Lab order not found" }, { status: 404 });
-
-  if (action === "send") {
-    if (order.paymentStatus === "AWAITING_PAYMENT") {
-      return NextResponse.json({ error: "Mark the offline payment as received before sending to the lab" }, { status: 400 });
-    }
-    const result = await sendLabOrder(labOrder.id);
-    if (!result.sent) return NextResponse.json({ error: result.detail }, { status: 400 });
-    return NextResponse.json({ ok: true, detail: result.detail });
-  }
-
-  if (action === "setStatus") {
-    const status = String(body.status ?? "");
-    if (!LAB_STATUSES.includes(status as (typeof LAB_STATUSES)[number])) {
-      return NextResponse.json({ error: "Unknown lab status" }, { status: 400 });
-    }
-    await applyLabStatus(labOrder.id, status, {
-      source: "PHOTOGRAPHER",
-      note: typeof body.note === "string" ? body.note : "",
-      trackingNumber: typeof body.trackingNumber === "string" ? body.trackingNumber : undefined,
-      carrier: typeof body.carrier === "string" ? body.carrier : undefined,
-    });
-    return NextResponse.json({ ok: true });
-  }
-
-  return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  void req;
+  return NextResponse.json(
+    { error: "Print lab fulfillment is coming soon. Print orders are recorded as usual; sending them to a lab switches on when labs launch." },
+    { status: 403 }
+  );
 }

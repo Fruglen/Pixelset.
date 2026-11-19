@@ -7,9 +7,24 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const preset = await db.preset.findFirst({ where: { id: params.id, userId: user.id } });
   if (!preset) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const { name } = await req.json();
-  if (typeof name === "string" && name.trim()) {
-    await db.preset.update({ where: { id: preset.id }, data: { name: name.trim() } });
+  const body = await req.json();
+  const data: Record<string, unknown> = {};
+  if (typeof body.name === "string" && body.name.trim()) data.name = body.name.trim();
+  // Preset option: auto-generate a fresh gallery password for every
+  // collection the preset is applied to (stored inside the settings JSON).
+  if (typeof body.autoPassword === "boolean") {
+    let settings: Record<string, unknown> = {};
+    try {
+      settings = JSON.parse(preset.settings) as Record<string, unknown>;
+    } catch {
+      settings = {};
+    }
+    if (body.autoPassword) settings.autoPassword = true;
+    else delete settings.autoPassword;
+    data.settings = JSON.stringify(settings);
+  }
+  if (Object.keys(data).length > 0) {
+    await db.preset.update({ where: { id: preset.id }, data });
   }
   return NextResponse.json({ ok: true });
 }

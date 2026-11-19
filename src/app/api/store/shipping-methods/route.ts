@@ -9,7 +9,7 @@ import { cleanMethod } from "@/lib/store-admin";
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = permissionError("manage_store");
+  const denied = await permissionError("manage_store");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const data = cleanMethod(await req.json());
   if (!data.name) return NextResponse.json({ error: "Give the method a name" }, { status: 400 });

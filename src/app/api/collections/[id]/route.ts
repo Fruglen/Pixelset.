@@ -103,7 +103,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const collection = await ownedCollection(params.id);
   if (!collection) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const denied = permissionError("delete");
+  const denied = await permissionError("delete");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   await db.collection.delete({ where: { id: collection.id } });
   // Remove uploaded files for this collection

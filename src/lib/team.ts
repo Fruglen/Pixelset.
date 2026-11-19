@@ -1,11 +1,14 @@
 import { cookies } from "next/headers";
+import { getCurrentSession } from "./auth";
 
 // Team roles: Owner / Assistant / Second Shooter.
 //
-// The account login is always the Owner. The Team settings page keeps a member
-// list and a "work as role" switcher (stored in a cookie) that downgrades the
-// current session to a member's permission level, destructive and money
-// endpoints check the active role server-side and refuse with 403.
+// Team members have their own logins (invite -> set password -> sign in).
+// A member's session row carries their role, and that role is authoritative:
+// it cannot be raised by editing cookies. The account owner can additionally
+// preview a lower role with the "work as role" switcher (a cookie), which
+// only ever downgrades the owner's own session. Destructive and money
+// endpoints check the effective role server-side and refuse with 403.
 
 export const ROLES = ["OWNER", "ASSISTANT", "SECOND_SHOOTER"] as const;
 export type Role = (typeof ROLES)[number];
@@ -55,9 +58,28 @@ export function setActiveRole(role: Role) {
   cookies().set(ROLE_COOKIE, role, { httpOnly: true, sameSite: "lax", path: "/" });
 }
 
-/** Returns an error message when the active role lacks the permission, else null. */
-export function permissionError(permission: Permission): string | null {
-  const role = activeRole();
+/**
+ * The role that actually governs this request. A team member's session role
+ * (set at login from their TeamMember record) always wins; the owner's
+ * session falls back to the "work as role" preview cookie.
+ */
+export async function effectiveRole(): Promise<Role> {
+  const session = await getCurrentSession().catch(() => null);
+  if (session && session.role !== "OWNER" && ROLES.includes(session.role as Role)) {
+    return session.role as Role;
+  }
+  return activeRole();
+}
+
+/** True when the current session belongs to a team member login (not the owner). */
+export async function isMemberSession(): Promise<boolean> {
+  const session = await getCurrentSession().catch(() => null);
+  return Boolean(session && session.role !== "OWNER");
+}
+
+/** Returns an error message when the effective role lacks the permission, else null. */
+export async function permissionError(permission: Permission): Promise<string | null> {
+  const role = await effectiveRole();
   if (roleHas(role, permission)) return null;
   return `Your role (${ROLE_LABELS[role]}) doesn't allow this, ask the studio Owner.`;
 }

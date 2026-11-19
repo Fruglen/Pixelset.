@@ -17,7 +17,7 @@ export async function PATCH(req: NextRequest) {
     "showStripe", "showPaypal", "showManual", "stripeAccount", "paypalEmail", "manualInstructions",
   ];
   if (paymentKeys.some((k) => k in body)) {
-    const denied = permissionError("payments");
+    const denied = await permissionError("payments");
     if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   }
 

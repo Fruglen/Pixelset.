@@ -26,12 +26,12 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = permissionError("upload");
+  const denied = await permissionError("upload");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
 
   if (!aiToolsConfigured()) {
     return NextResponse.json(
-      { error: "AI tools are not connected yet (no AI_TOOLS_ENDPOINT is set).", connected: false },
+      { error: "AI tools are coming soon (the AI endpoint is not connected yet).", connected: false },
       { status: 501 }
     );
   }

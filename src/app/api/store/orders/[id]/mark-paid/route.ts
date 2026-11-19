@@ -9,7 +9,7 @@ import { settleOrderMaths } from "@/lib/order-maths";
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = permissionError("manage_store");
+  const denied = await permissionError("manage_store");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const result = await markOrderPaid(params.id, user.id);
   if ("error" in result && result.error) return NextResponse.json({ error: result.error }, { status: 400 });

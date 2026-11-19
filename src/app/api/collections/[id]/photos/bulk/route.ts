@@ -85,7 +85,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   if (action === "delete") {
-    const denied = permissionError("delete");
+    const denied = await permissionError("delete");
     if (denied) return NextResponse.json({ error: denied }, { status: 403 });
     for (const p of photos) {
       await db.photo.delete({ where: { id: p.id } });

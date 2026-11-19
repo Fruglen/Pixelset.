@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = permissionError("settings");
+  const denied = await permissionError("settings");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const includeFiles = req.nextUrl.searchParams.get("files") === "1";
   const { stream } = await buildAccountExport(user.id, includeFiles);

@@ -13,7 +13,7 @@ async function owned(id: string) {
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const m = await owned(params.id);
   if (!m) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const denied = permissionError("manage_store");
+  const denied = await permissionError("manage_store");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   await db.shippingMethod.update({ where: { id: m.id }, data: cleanMethod(await req.json()) });
   return NextResponse.json({ ok: true });
@@ -22,7 +22,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const m = await owned(params.id);
   if (!m) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const denied = permissionError("manage_store");
+  const denied = await permissionError("manage_store");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   await db.shippingMethod.delete({ where: { id: m.id } });
   return NextResponse.json({ ok: true });
