@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { fmtMoney } from "@/lib/studio";
+import { getStoreProfile } from "@/lib/store";
+import { formatStoreMoney } from "@/lib/store-rates";
 import { formatDateTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,8 @@ const STATUS_STYLES: Record<string, string> = {
 export default async function OrdersPage({ searchParams }: { searchParams: { status?: string } }) {
   const user = (await getCurrentUser())!;
   const filter = searchParams.status;
+  const profile = await getStoreProfile(user.id);
+  const fmtMoney = (c: number) => formatStoreMoney(c, profile.currency);
   const orders = await db.order.findMany({
     where: { userId: user.id, ...(filter ? { status: filter } : {}) },
     include: { collection: true, items: true },
@@ -51,11 +54,11 @@ export default async function OrdersPage({ searchParams }: { searchParams: { sta
       ) : (
         <div className="card divide-y divide-neutral-100">
           {orders.map((o) => (
-            <Link key={o.id} href={`/store/orders/${o.id}`} className="flex items-center gap-4 px-4 py-3 hover:bg-neutral-50">
+            <Link key={o.id} href={`/store/orders/${o.id}`} className="flex items-center gap-x-4 gap-y-1 flex-wrap sm:flex-nowrap px-4 py-3 hover:bg-neutral-50">
               <div className="w-20 shrink-0">
                 <p className="text-sm font-medium">{o.number}</p>
               </div>
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-[12rem]">
                 <p className="text-sm truncate">
                   {o.customerName} <span className="text-neutral-400">· {o.customerEmail}</span>
                 </p>
@@ -63,6 +66,9 @@ export default async function OrdersPage({ searchParams }: { searchParams: { sta
                   {o.collection?.name ?? "-"} · {o.items.reduce((s, i) => s + i.qty, 0)} item(s) · {formatDateTime(o.createdAt)}
                 </p>
               </div>
+              {o.paymentStatus === "AWAITING_PAYMENT" && (
+                <span className="text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 shrink-0">Awaiting payment</span>
+              )}
               <span className="text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-neutral-200 text-neutral-500 shrink-0">
                 {o.fulfillment}
               </span>

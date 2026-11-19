@@ -3,6 +3,9 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { CollectionTabs } from "./tabs";
+import PublishButton from "./publish-button";
+import { resendConnected } from "@/lib/mailer";
+import { processExpiryReminders } from "@/lib/expiry-reminders";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +17,10 @@ export default async function CollectionLayout({
   params: { id: string };
 }) {
   const user = (await getCurrentUser())!;
+  await processExpiryReminders(user.id).catch(() => []);
   const collection = await db.collection.findFirst({
     where: { id: params.id, userId: user.id },
-    include: { _count: { select: { photos: true } } },
+    include: { _count: { select: { photos: true } }, registrations: { select: { email: true } } },
   });
   if (!collection) notFound();
 
@@ -38,14 +42,17 @@ export default async function CollectionLayout({
             {expired ? " · expired (hidden)" : ""}
           </p>
         </div>
-        <a
-          href={`/g/${collection.slug}`}
-          target="_blank"
-          rel="noreferrer"
-          className="btn-secondary"
-        >
-          Public view ↗
-        </a>
+        <div className="flex gap-2">
+          <PublishButton
+            collectionId={collection.id}
+            status={collection.status}
+            registrations={collection.registrations.map((r) => r.email)}
+            mailConnected={resendConnected()}
+          />
+          <a href={`/g/${collection.slug}`} target="_blank" rel="noreferrer" className="btn-secondary">
+            Public view ↗
+          </a>
+        </div>
       </div>
       <CollectionTabs id={collection.id} />
       <div className="mt-6">{children}</div>

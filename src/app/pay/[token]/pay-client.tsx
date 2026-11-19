@@ -29,7 +29,13 @@ export function PayClient({
   status: string;
   totalCents: number;
   installments: Inst[];
-  payMethods: { stripe: boolean; paypal: boolean; manual: boolean; manualInstructions: string };
+  payMethods: {
+    stripe: boolean;
+    paypal: boolean;
+    manual: boolean;
+    manualInstructions: string;
+    live?: { stripeLive: boolean; paypalLive: boolean; wallets: string[]; bnpl: string[] };
+  };
 }) {
   const router = useRouter();
   const [method, setMethod] = useState(payMethods.stripe ? "card" : payMethods.paypal ? "paypal" : "manual");
@@ -43,6 +49,30 @@ export function PayClient({
     setError("");
     setBusy(installmentId ?? "full");
     const tipCents = Math.max(0, Math.round((parseFloat(tip) || 0) * 100));
+    // Night build: live processors, when connected, take over the card and
+    // PayPal paths (Stripe Checkout / PayPal approval). Everything else uses
+    // the recorded demo checkout below.
+    const livePath =
+      method === "card" && payMethods.live?.stripeLive
+        ? `/api/pay/${token}/checkout`
+        : method === "paypal" && payMethods.live?.paypalLive
+          ? `/api/pay/${token}/paypal`
+          : null;
+    if (livePath) {
+      const res = await fetch(livePath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ installmentId, tipCents }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        setBusy("");
+        setError(data.error ?? "Could not start the payment.");
+        return;
+      }
+      window.location.href = data.url;
+      return;
+    }
     const res = await fetch(`/api/pay/${token}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -115,7 +145,14 @@ export function PayClient({
         {payMethods.stripe ? (
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="radio" checked={method === "card"} onChange={() => setMethod("card")} />
-            Card, Pixelset Payments (Stripe-powered)
+            <span>
+              Card, Pixelset Payments (Stripe-powered)
+              {payMethods.live?.stripeLive && (payMethods.live.wallets.length || payMethods.live.bnpl.length) ? (
+                <span className="block text-xs text-neutral-500">
+                  Also accepts {[...payMethods.live.wallets, ...payMethods.live.bnpl].join(", ")}
+                </span>
+              ) : null}
+            </span>
           </label>
         ) : null}
         {payMethods.paypal ? (
@@ -137,24 +174,51 @@ export function PayClient({
         ) : null}
       </div>
 
-      <div className="flex items-end gap-3">
-        <div>
-          <label className="label">Add a tip (optional)</label>
+      <div className="space-y-2">
+        <label className="label">Add a tip (optional)</label>
+        <div className="flex items-end gap-3 flex-wrap">
+          <div className="flex gap-1.5">
+            {[5, 10, 15].map((pct) => {
+              const base = nextUnpaid ? nextUnpaid.amountCents : totalCents;
+              const val = ((base * pct) / 100 / 100).toFixed(2);
+              return (
+                <button
+                  key={pct}
+                  type="button"
+                  className={tip === val ? "btn-primary !px-3 !py-1.5 text-sm" : "btn-secondary !px-3 !py-1.5 text-sm"}
+                  onClick={() => setTip(val)}
+                >
+                  {pct}%
+                </button>
+              );
+            })}
+            <button type="button" className="btn-secondary !px-3 !py-1.5 text-sm" onClick={() => setTip("")}>
+              No tip
+            </button>
+          </div>
           <input
             className="input w-28"
-            placeholder="0.00"
+            placeholder="Custom $"
             inputMode="decimal"
             value={tip}
             onChange={(e) => setTip(e.target.value)}
           />
         </div>
+        <p className="text-xs text-neutral-400">Presets are worked out on the amount you are paying now.</p>
+      </div>
+      <div className="flex items-end gap-3">
+        <div />
         {installments.length === 0 ? (
           <button className="btn-primary" disabled={!!busy} onClick={() => pay()}>
             {busy ? "Processing…" : `Pay ${money(totalCents)}`}
           </button>
         ) : null}
       </div>
-      <p className="text-xs text-neutral-400">Demo checkout, no real charge is made. Tap to Pay is available in person.</p>
+      <p className="text-xs text-neutral-400">
+        {payMethods.live?.stripeLive || payMethods.live?.paypalLive
+          ? "Payments are processed securely by the connected provider. Tap to Pay is available in person."
+          : "Demo checkout, no real charge is made. Tap to Pay is available in person."}
+      </p>
     </div>
   );
 }

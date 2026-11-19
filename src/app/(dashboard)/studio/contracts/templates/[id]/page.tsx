@@ -11,5 +11,5 @@ export default async function TemplateEditPage({ params }: { params: { id: strin
   const template = await db.contractTemplate.findFirst({ where: { id: params.id, userId: user.id } });
   if (!template) notFound();
 
-  return <TemplateEditor template={{ id: template.id, name: template.name, body: template.body }} />;
+  return <TemplateEditor template={{ id: template.id, name: template.name, body: template.body, brandLogoUrl: template.brandLogoUrl, brandColor: template.brandColor, headerImageUrl: template.headerImageUrl }} />;
 }

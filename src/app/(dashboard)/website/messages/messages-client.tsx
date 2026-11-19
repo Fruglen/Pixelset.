@@ -71,7 +71,7 @@ export function MessagesClient({ messages }: { messages: Message[] }) {
             <details key={m.id} className={`card ${m.read ? "" : "border-neutral-900"}`} onToggle={(e) => {
               if ((e.target as HTMLDetailsElement).open && !m.read) setRead(m.id, true);
             }}>
-              <summary className="px-4 py-3 cursor-pointer list-none flex items-center gap-3">
+              <summary className="px-4 py-3 cursor-pointer list-none flex items-center gap-x-3 gap-y-1 flex-wrap sm:flex-nowrap">
                 {!m.read ? <span className="w-2 h-2 rounded-full bg-neutral-900 flex-none" /> : <span className="w-2 flex-none" />}
                 <span
                   className={`text-[10px] uppercase tracking-wider rounded px-1.5 py-0.5 flex-none ${
@@ -81,8 +81,8 @@ export function MessagesClient({ messages }: { messages: Message[] }) {
                   {KIND_LABEL[m.kind] ?? m.kind}
                 </span>
                 <span className="text-sm font-medium flex-none">{m.name || m.email}</span>
-                <span className="text-sm text-neutral-500 truncate flex-1">{m.subject || m.body || m.meta}</span>
-                <span className="text-xs text-neutral-400 flex-none">{formatDateTime(m.createdAt)}</span>
+                <span className="text-sm text-neutral-500 truncate flex-1 min-w-0 hidden sm:inline">{m.subject || m.body || m.meta}</span>
+                <span className="text-xs text-neutral-400 flex-none ml-auto">{formatDateTime(m.createdAt)}</span>
               </summary>
               <div className="border-t border-neutral-100 px-4 py-4 text-sm space-y-2">
                 <p>

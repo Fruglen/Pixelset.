@@ -8,6 +8,7 @@ export const COVER_STYLES = [
   { id: "stripe", name: "Stripe", desc: "Split panel, title beside the photo" },
   { id: "journal", name: "Journal", desc: "Photo on top, title block below" },
   { id: "divider", name: "Divider", desc: "Centered title with rule lines" },
+  { id: "vintage", name: "Vintage", desc: "Framed photo card on the palette, title and date below" },
   { id: "none", name: "None", desc: "No cover, straight to the grid" },
 ] as const;
 

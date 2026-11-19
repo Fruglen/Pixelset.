@@ -15,7 +15,7 @@ export default async function SessionsPage() {
     where: { userId: user.id },
     include: {
       addOns: true,
-      dates: { include: { slots: { include: { bookings: { where: { status: { in: ["CONFIRMED", "PENDING"] } } } } } } },
+      dates: { include: { slots: { include: { bookings: { where: { status: { in: ["CONFIRMED", "PENDING", "AWAITING_CLIENT"] } } } } } } },
       _count: { select: { bookings: true } },
     },
     orderBy: [{ isMini: "asc" }, { createdAt: "asc" }],

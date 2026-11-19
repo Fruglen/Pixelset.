@@ -1,4 +1,6 @@
 import { notFound } from "next/navigation";
+import { brandFor, brandVars } from "@/lib/brand";
+import { BrandMark } from "@/components/brand-mark";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import {
@@ -10,17 +12,25 @@ import {
 } from "@/lib/studio";
 import { formatDate } from "@/lib/utils";
 import { PayClient } from "./pay-client";
+import { invoiceTemplate } from "@/lib/invoice-templates";
+import { clientPaymentMethods } from "@/lib/processors";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Invoice" };
 
-export default async function PayPage({ params }: { params: { token: string } }) {
+export default async function PayPage({ params, searchParams }: { params: { token: string }; searchParams?: { template?: string } }) {
   const invoice = await db.invoice.findUnique({
     where: { token: params.token },
     include: { contact: true, user: true, installments: { orderBy: { order: "asc" } } },
   });
-  if (!invoice || invoice.status === "DRAFT") notFound();
+  if (!invoice) notFound();
+  // Drafts are visible only as a template preview (the editor links here with ?template=).
+  if (invoice.status === "DRAFT" && !searchParams?.template) notFound();
+  const tpl = invoiceTemplate(searchParams?.template || invoice.template);
+  const w = tpl.words;
+  const modern = tpl.id === "MODERN";
+  const minimal = tpl.id === "MINIMAL";
 
   const profile = await getStudioProfile(invoice.userId);
   const items = parseItems(invoice.items);
@@ -28,12 +38,32 @@ export default async function PayPage({ params }: { params: { token: string } })
   const status = invoiceEffectiveStatus(invoice.status, invoice.installments);
   const business = invoice.user.businessName || invoice.user.name;
 
+  const brand = await brandFor(invoice.userId);
   return (
-    <div className="min-h-screen bg-[#faf9f7] text-ink py-10 px-4">
+    <div className="min-h-screen bg-[#faf9f7] text-ink py-10 px-4 branded print-area print-page-number" style={brandVars(brand)}>
       <div className="max-w-2xl mx-auto">
-        <p className="text-center text-xs uppercase tracking-[0.25em] text-neutral-400 mb-2">{business}</p>
-        <h1 className="font-display text-2xl text-center">Invoice {invoice.number}</h1>
-        <p className="text-center text-sm mt-2 mb-8">
+        {/* Night build (Extras): repeated studio header on printed invoices */}
+        <div className="print-header hidden">
+          <p className="font-display text-xl">{brand.name}</p>
+          <p className="text-xs text-neutral-500">
+            Invoice {invoice.number} · {invoice.title} · Printed {new Date().toLocaleDateString()}
+          </p>
+        </div>
+        {!modern ? <div className={`mb-3 ${minimal ? "[&>div]:items-start" : ""}`}><BrandMark brand={brand} align={minimal ? "left" : "center"} /></div> : null}
+        {invoice.status === "DRAFT" ? (
+          <p className="text-center text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-6">
+            Template preview, this invoice is still a draft and cannot be paid yet.
+          </p>
+        ) : null}
+        {!modern ? (
+          <>
+            <p className={`text-xs uppercase tracking-[0.25em] text-neutral-400 mb-2 ${minimal ? "" : "text-center"}`}>{business}</p>
+            <h1 className={`${minimal ? "text-xl font-semibold" : "font-display text-2xl text-center"}`}>
+              {w.heading} {invoice.number}
+            </h1>
+          </>
+        ) : null}
+        <p className={`text-sm mt-2 mb-8 ${minimal ? "" : "text-center"} ${modern ? "hidden" : ""}`}>
           <span
             className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${
               status === "PAID"
@@ -49,24 +79,62 @@ export default async function PayPage({ params }: { params: { token: string } })
           </span>
         </p>
 
-        <div className="bg-white border border-neutral-200 shadow-sm rounded-sm px-8 py-10 text-sm">
+        {invoice.featuredPhotoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={invoice.featuredPhotoUrl}
+            alt={invoice.title || `Invoice ${invoice.number}`}
+            className="w-full max-h-72 object-cover rounded-md border border-neutral-200 shadow-sm mb-6"
+          />
+        ) : null}
+        <div
+          className={`text-sm ${
+            minimal ? "bg-white px-2 py-6" : modern ? "bg-white border border-neutral-200 shadow-sm rounded-md overflow-hidden" : "bg-white border border-neutral-200 shadow-sm rounded-sm px-8 py-10"
+          }`}
+        >
+          {modern ? (
+            <div className="bg-neutral-900 text-white px-8 py-8 flex items-end justify-between gap-6" style={brand.custom ? { background: brand.color } : undefined}>
+              <div>
+                {brand.logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={brand.logoUrl} alt={`${business} logo`} className="max-h-10 max-w-[180px] object-contain mb-2 bg-white/90 rounded p-1" />
+                ) : null}
+                <p className="text-xs uppercase tracking-[0.25em] text-neutral-400">{business}</p>
+                <h1 className="font-display text-3xl mt-1">{w.heading}</h1>
+                <p className="text-neutral-400 text-xs mt-1">
+                  {invoice.number} · {status === "PARTIAL" ? "PARTIALLY PAID" : status}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs uppercase tracking-wide text-neutral-400">{w.total}</p>
+                <p className="text-3xl font-display">{fmtMoney(totals.total)}</p>
+              </div>
+            </div>
+          ) : null}
+          <div className={modern ? "px-8 py-8" : ""}>
           <div className="flex justify-between gap-6 mb-8">
             <div>
-              <p className="text-xs uppercase tracking-wide text-neutral-400 mb-1">Billed to</p>
+              <p className="text-xs uppercase tracking-wide text-neutral-400 mb-1">{w.billedTo}</p>
               <p className="font-medium">{invoice.contact?.name ?? "-"}</p>
               {invoice.contact?.email ? <p className="text-neutral-500">{invoice.contact.email}</p> : null}
             </div>
             <div className="text-right">
               {invoice.title ? <p className="font-medium">{invoice.title}</p> : null}
-              <p className="text-neutral-500">Issued {formatDate(invoice.issueDate)}</p>
-              {invoice.dueDate ? <p className="text-neutral-500">Due {formatDate(invoice.dueDate)}</p> : null}
+              <p className="text-neutral-500">
+                {w.issued} {formatDate(invoice.issueDate)}
+              </p>
+              {invoice.dueDate ? (
+                <p className="text-neutral-500">
+                  {w.due} {formatDate(invoice.dueDate)}
+                </p>
+              ) : null}
             </div>
           </div>
 
           <table className="w-full">
             <thead>
-              <tr className="text-xs uppercase tracking-wide text-neutral-400 border-b border-neutral-200">
-                <th className="text-left py-2 font-medium">Item</th>
+              <tr className={`text-xs uppercase tracking-wide text-neutral-400 ${minimal ? "" : "border-b border-neutral-200"}`}>
+                <th className="text-left py-2 font-medium">{w.item}</th>
                 <th className="text-right py-2 font-medium">Qty</th>
                 <th className="text-right py-2 font-medium">Price</th>
                 <th className="text-right py-2 font-medium">Amount</th>
@@ -74,7 +142,7 @@ export default async function PayPage({ params }: { params: { token: string } })
             </thead>
             <tbody>
               {items.map((it, i) => (
-                <tr key={i} className="border-b border-neutral-100">
+                <tr key={i} className={minimal ? "" : modern ? "border-b border-neutral-100 even:bg-neutral-50" : "border-b border-neutral-100"}>
                   <td className="py-2.5">{it.description}</td>
                   <td className="py-2.5 text-right">{it.qty}</td>
                   <td className="py-2.5 text-right">{fmtMoney(it.unitCents)}</td>
@@ -108,19 +176,23 @@ export default async function PayPage({ params }: { params: { token: string } })
                   <span>{fmtMoney(totals.tip)}</span>
                 </div>
               ) : null}
-              <div className="flex justify-between font-semibold border-t border-neutral-200 pt-1.5">
-                <span>Total</span>
+              <div className={`flex justify-between font-semibold pt-1.5 ${minimal ? "" : "border-t border-neutral-200"}`}>
+                <span>{w.total}</span>
                 <span>{fmtMoney(totals.total)}</span>
               </div>
             </div>
           </div>
 
           {invoice.notes ? (
-            <p className="mt-8 text-neutral-500 whitespace-pre-wrap border-t border-neutral-100 pt-4">{invoice.notes}</p>
+            <div className="mt-8 border-t border-neutral-100 pt-4">
+              <p className="text-xs uppercase tracking-wide text-neutral-400 mb-1">{w.notes}</p>
+              <p className="text-neutral-500 whitespace-pre-wrap">{invoice.notes}</p>
+            </div>
           ) : null}
+          </div>
         </div>
 
-        <div className="mt-8">
+        <div className={`mt-8 ${invoice.status === "DRAFT" ? "hidden" : ""}`}>
           <PayClient
             token={params.token}
             status={status}
@@ -140,11 +212,15 @@ export default async function PayPage({ params }: { params: { token: string } })
               paypal: profile.showPaypal,
               manual: profile.showManual && profile.manualEnabled,
               manualInstructions: profile.manualInstructions,
+              live: clientPaymentMethods(profile),
             }}
           />
         </div>
         <p className="text-center text-xs text-neutral-400 mt-8">
-          {business} · powered by Pixelset · payments are processed at 2.9% + $0.30 per transaction (demo)
+          {business} · powered by Pixelset ·{" "}
+          {clientPaymentMethods(profile).stripeLive || clientPaymentMethods(profile).paypalLive
+            ? "payments are processed securely by the connected payment provider"
+            : "demo checkout, payments are mocked and no card is charged"}
         </p>
       </div>
     </div>

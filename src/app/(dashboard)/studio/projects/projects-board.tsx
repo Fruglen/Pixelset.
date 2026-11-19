@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 const STAGES = [
   { key: "INQUIRY", label: "Inquiry" },
@@ -37,12 +38,18 @@ export function ProjectsBoard({
   const [dragId, setDragId] = useState("");
   const [dragOver, setDragOver] = useState("");
 
+  const [toast, setToast] = useState("");
   async function patch(id: string, data: Record<string, unknown>) {
-    await fetch(`/api/studio/projects/${id}`, {
+    const res = await fetch(`/api/studio/projects/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
+    const out = await res.json().catch(() => ({}));
+    if (out.feedback) {
+      setToast(out.feedback);
+      setTimeout(() => setToast(""), 5000);
+    }
     router.refresh();
   }
 
@@ -76,6 +83,7 @@ export function ProjectsBoard({
 
   return (
     <div className="space-y-5">
+      {toast ? <p className="text-sm text-emerald-700 mb-3">{toast}</p> : null}
       <div className="flex items-center justify-between">
         <p className="text-sm text-neutral-500">
           Bookings land in <span className="font-medium">Booked</span> automatically; drag cards (or use the
@@ -87,7 +95,8 @@ export function ProjectsBoard({
       </div>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-      <div className="grid grid-cols-5 gap-3 min-h-[420px]">
+      <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+      <div className="grid grid-cols-5 gap-3 min-h-[420px] min-w-[880px] md:min-w-0">
         {STAGES.map((s) => {
           const cards = projects.filter((p) => p.stage === s.key);
           return (
@@ -118,7 +127,9 @@ export function ProjectsBoard({
                   onDragEnd={() => setDragId("")}
                   className="card p-3 cursor-grab active:cursor-grabbing bg-white"
                 >
-                  <p className="text-sm font-medium leading-snug">{p.name}</p>
+                  <Link href={`/studio/projects/${p.id}`} className="text-sm font-medium leading-snug hover:underline block" draggable={false}>
+                    {p.name}
+                  </Link>
                   {p.contactName ? <p className="text-xs text-neutral-500 mt-0.5">{p.contactName}</p> : null}
                   {p.bookingStart ? (
                     <p className="text-xs text-neutral-400 mt-0.5">
@@ -151,6 +162,7 @@ export function ProjectsBoard({
             </div>
           );
         })}
+      </div>
       </div>
 
       {showCreate ? (

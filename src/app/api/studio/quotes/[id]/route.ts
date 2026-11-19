@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { logStudioMessage, parseItems } from "@/lib/studio";
+import { logStudioMessage, parseItems, parseQuoteItems } from "@/lib/studio";
 import { absoluteUrl, deliveryNote, sendMail } from "@/lib/mailer";
 
 async function own(id: string) {
@@ -20,7 +20,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   if (typeof body.title === "string") data.title = body.title.trim();
   if (typeof body.notes === "string") data.notes = body.notes;
-  if (Array.isArray(body.items)) data.items = JSON.stringify(parseItems(JSON.stringify(body.items)));
+  if (Array.isArray(body.items)) data.items = JSON.stringify(parseQuoteItems(JSON.stringify(body.items)));
   if (body.taxRate !== undefined) {
     const r = Number(body.taxRate);
     if (!isNaN(r) && r >= 0 && r <= 100) data.taxRate = r;

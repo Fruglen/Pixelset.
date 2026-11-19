@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { invoiceEffectiveStatus, parseItems } from "@/lib/studio";
 import { InvoiceEditor } from "./invoice-editor";
+import { parseSchedule } from "@/lib/studio-flow";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,13 @@ export default async function InvoiceEditPage({ params }: { params: { id: string
   if (!invoice) notFound();
 
   const contacts = await db.contact.findMany({ where: { userId: user.id }, orderBy: { name: "asc" } });
+  // Photos the photographer can pick as the invoice's featured photo.
+  const photos = await db.photo.findMany({
+    where: { collection: { userId: user.id } },
+    orderBy: { createdAt: "desc" },
+    take: 24,
+    select: { id: true, url: true, filename: true },
+  });
 
   return (
     <InvoiceEditor
@@ -37,6 +45,10 @@ export default async function InvoiceEditPage({ params }: { params: { id: string
         notes: invoice.notes,
         bookingTitle: invoice.booking?.title ?? "",
         quoteNumber: invoice.quote?.number ?? "",
+        template: invoice.template,
+        featuredPhotoUrl: invoice.featuredPhotoUrl,
+        reminderSchedule: parseSchedule(invoice.reminderSchedule),
+        remindersSent: parseSchedule(invoice.remindersSent),
         installments: invoice.installments.map((i) => ({
           label: i.label,
           dueDate: i.dueDate.toISOString().slice(0, 10),
@@ -45,6 +57,7 @@ export default async function InvoiceEditPage({ params }: { params: { id: string
         })),
       }}
       contacts={contacts.map((c) => ({ id: c.id, name: c.name }))}
+      photos={photos.map((p) => ({ id: p.id, url: p.url, filename: p.filename }))}
     />
   );
 }

@@ -7,6 +7,7 @@ export type GalleryAccess = {
   email: string; // registered viewer email ("" if none)
   name: string; // viewer display name
   sets: string[]; // unlocked client-exclusive set ids
+  group?: string; // Phase 5B: access group id the viewer entered with
 };
 
 const SECRET = process.env.SESSION_SECRET || "pixelset-dev-secret";
@@ -32,6 +33,7 @@ export function readGalleryAccess(collectionId: string): GalleryAccess {
       email: typeof data.email === "string" ? data.email : "",
       name: typeof data.name === "string" ? data.name : "",
       sets: Array.isArray(data.sets) ? data.sets.filter((s: unknown) => typeof s === "string") : [],
+      group: typeof data.group === "string" ? data.group : undefined,
     };
   } catch {
     return empty;

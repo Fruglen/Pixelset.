@@ -9,6 +9,8 @@ import {
   invoiceEffectiveStatus,
 } from "@/lib/studio";
 import { formatDateTime } from "@/lib/utils";
+import { studioChecklist } from "@/lib/onboarding";
+import { SetupChecklistCard } from "@/components/setup-checklist";
 
 export const dynamic = "force-dynamic";
 
@@ -56,8 +58,10 @@ export default async function StudioOverviewPage() {
     { label: "Contacts", value: String(contactCount), href: "/studio/contacts" },
   ];
 
+  const setup = await studioChecklist(user.id);
   return (
     <div className="space-y-8">
+      <SetupChecklistCard list={setup} />
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((s) => (
           <Link key={s.label} href={s.href} className="card p-5 hover:shadow-md transition-shadow">

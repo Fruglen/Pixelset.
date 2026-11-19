@@ -6,6 +6,10 @@ import { db } from "@/lib/db";
 import { getSiteBySlug } from "@/lib/site-data";
 import { SiteShell, SitePageBlocks } from "@/components/site/page-shell";
 import { formatDate } from "@/lib/utils";
+import { findRedirect } from "@/lib/site-redirects";
+import { siteExt } from "@/lib/site-ext";
+import { readSiteGate } from "@/lib/site-gate";
+import { GateScreen } from "@/components/site/gate-screen";
 
 export const dynamic = "force-dynamic";
 
@@ -14,12 +18,11 @@ async function resolve(slug: string, path: string[]) {
   if (!site) return null;
   const joined = `/${path.join("/")}`;
 
-  // 301-style redirects (served as a permanent redirect)
-  const redirect = await db.siteRedirect.findUnique({
-    where: { websiteId_fromPath: { websiteId: site.website.id, fromPath: joined } },
-  });
+  // 301 redirects are answered by src/middleware.ts with a literal 301. This
+  // fallback only runs if the middleware lookup was unavailable.
+  const redirect = await findRedirect(site.website.id, joined);
   if (redirect) {
-    const target = redirect.toPath.startsWith("http") ? redirect.toPath : `/site/${slug}${redirect.toPath === "/" ? "" : redirect.toPath}`;
+    const target = redirect.toPath.startsWith("http") ? redirect.toPath : `${site.basePath}${redirect.toPath === "/" ? "" : redirect.toPath}` || "/";
     return { kind: "redirect" as const, target };
   }
 
@@ -82,12 +85,28 @@ export default async function SiteSubPage({ params }: { params: { slug: string; 
   if (!res) notFound();
   if (res.kind === "redirect") permanentRedirect(res.target);
 
-  const { website, isOwner } = res.site;
+  const { website, isOwner, draftMode, basePath } = res.site;
+
+  // Night build: password gates (owner is never gated). A site unlock also
+  // opens its pages; a page password only opens that page.
+  if (!isOwner) {
+    const ext = siteExt(website);
+    const gate = readSiteGate(website.id);
+    if (ext.sitePassword && !gate.site) {
+      return <GateScreen website={website} label="This site is private" />;
+    }
+    if (res.kind === "page") {
+      const pagePassword = String((res.page as unknown as Record<string, unknown>).password ?? "");
+      if (pagePassword && !gate.site && !gate.pages.includes(res.page.id)) {
+        return <GateScreen website={website} pageId={res.page.id} label="This page is private" />;
+      }
+    }
+  }
 
   if (res.kind === "post") {
     const post = res.post;
     return (
-      <SiteShell website={website} isOwner={isOwner} activeSlug="blog">
+      <SiteShell website={website} isOwner={isOwner} draftMode={draftMode} basePath={basePath} activeSlug="blog">
         <article className="px-6 py-12">
           <div className="max-w-2xl mx-auto">
             {post.status !== "PUBLISHED" ? (
@@ -99,7 +118,7 @@ export default async function SiteSubPage({ params }: { params: { slug: string; 
             {post.coverUrl ? <img src={post.coverUrl} alt={post.coverAlt} className="w-full my-8" /> : <div className="my-8" />}
             <PostBody body={post.body} />
             <p className="mt-12">
-              <Link href={`/site/${website.slug}/blog`} className="site-nav-link">← Back to the journal</Link>
+              <Link href={`${basePath}/blog`} className="site-nav-link">← Back to the journal</Link>
             </p>
           </div>
         </article>
@@ -108,8 +127,8 @@ export default async function SiteSubPage({ params }: { params: { slug: string; 
   }
 
   return (
-    <SiteShell website={website} isOwner={isOwner} activeSlug={res.page.slug}>
-      <SitePageBlocks website={website} page={res.page} />
+    <SiteShell website={website} isOwner={isOwner} draftMode={draftMode} basePath={basePath} activeSlug={res.page.slug}>
+      <SitePageBlocks website={website} page={res.page} basePath={basePath} />
     </SiteShell>
   );
 }

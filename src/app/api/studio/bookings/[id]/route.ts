@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { syncBookingToGoogle } from "@/lib/google-calendar";
 
-const STATUSES = ["PENDING", "CONFIRMED", "CANCELLED", "WAITLIST", "COMPLETED"];
+const STATUSES = ["PENDING", "AWAITING_CLIENT", "CONFIRMED", "CANCELLED", "WAITLIST", "COMPLETED"];
 const PAY_STATUSES = ["UNPAID", "RETAINER_PAID", "PAID"];
 
 async function own(id: string) {
@@ -24,7 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (booking.status === "WAITLIST" && data.status === "CONFIRMED" && booking.slotId) {
     const slot = await db.miniSlot.findUnique({
       where: { id: booking.slotId },
-      include: { bookings: { where: { status: { in: ["CONFIRMED", "PENDING"] } } } },
+      include: { bookings: { where: { status: { in: ["CONFIRMED", "PENDING", "AWAITING_CLIENT"] } } } },
     });
     if (slot && slot.bookings.length >= slot.capacity) {
       return NextResponse.json({ error: "That slot is still full, cancel a booking first." }, { status: 400 });
@@ -32,6 +33,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   await db.booking.update({ where: { id: booking.id }, data });
+  // Mirror status changes (confirm, cancel, complete) to Google Calendar.
+  if (data.status) await syncBookingToGoogle(booking.id);
 
   // Keep the kanban roughly in sync: confirming a waitlist/pending booking files it under Booked.
   if (data.status === "CONFIRMED") {

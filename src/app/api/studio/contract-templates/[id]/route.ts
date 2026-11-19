@@ -15,6 +15,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const data: Record<string, unknown> = {};
   if (typeof body.name === "string" && body.name.trim()) data.name = body.name.trim();
   if (typeof body.body === "string") data.body = body.body;
+  // Phase 5B branding
+  for (const k of ["brandLogoUrl", "headerImageUrl"] as const) {
+    if (typeof body[k] === "string") data[k] = body[k].trim().slice(0, 1000);
+  }
+  if (typeof body.brandColor === "string") data.brandColor = /^#[0-9a-fA-F]{6}$/.test(body.brandColor) ? body.brandColor : "";
   await db.contractTemplate.update({ where: { id: template.id }, data });
   return NextResponse.json({ ok: true });
 }

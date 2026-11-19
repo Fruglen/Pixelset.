@@ -11,6 +11,7 @@ type CollectionItem = {
   slug: string;
   status: string;
   folderId: string | null;
+  starred: boolean;
   eventDate: string | null;
   expiresAt: string | null;
   photoCount: number;
@@ -27,18 +28,34 @@ export default function CollectionsClient({
   collections,
   folders,
   presets,
+  defaultPresetId = "",
 }: {
+  defaultPresetId?: string;
   collections: CollectionItem[];
   folders: { id: string; name: string }[];
   presets: { id: string; name: string }[];
 }) {
   const router = useRouter();
-  const [activeFolder, setActiveFolder] = useState<string | "all">("all");
+  const [activeFolder, setActiveFolder] = useState<string | "all" | "starred">("all");
+  const [starMap, setStarMap] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(collections.map((c) => [c.id, c.starred]))
+  );
+
+  async function toggleStar(id: string) {
+    const next = !starMap[id];
+    setStarMap((m) => ({ ...m, [id]: next }));
+    const res = await fetch(`/api/collections/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ starred: next }),
+    });
+    if (!res.ok) setStarMap((m) => ({ ...m, [id]: !next }));
+  }
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [slug, setSlug] = useState("");
-  const [presetId, setPresetId] = useState("");
+  const [presetId, setPresetId] = useState(defaultPresetId);
   const [picflowUrl, setPicflowUrl] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,7 +63,11 @@ export default function CollectionsClient({
   const [addingFolder, setAddingFolder] = useState(false);
 
   const visible =
-    activeFolder === "all" ? collections : collections.filter((c) => c.folderId === activeFolder);
+    activeFolder === "all"
+      ? collections
+      : activeFolder === "starred"
+        ? collections.filter((c) => starMap[c.id])
+        : collections.filter((c) => c.folderId === activeFolder);
 
   async function createCollection(e: React.FormEvent) {
     e.preventDefault();
@@ -59,8 +80,8 @@ export default function CollectionsClient({
         name,
         eventDate: eventDate || null,
         slug: slug || undefined,
-        presetId: presetId || undefined,
-        folderId: activeFolder === "all" ? undefined : activeFolder,
+        presetId: presetId || "none",
+        folderId: activeFolder === "all" || activeFolder === "starred" ? undefined : activeFolder,
       }),
     });
     if (res.ok) {
@@ -146,6 +167,14 @@ export default function CollectionsClient({
           >
             All collections ({collections.length})
           </button>
+          <button
+            onClick={() => setActiveFolder("starred")}
+            className={`block w-full text-left px-2 py-1.5 rounded text-sm ${
+              activeFolder === "starred" ? "bg-neutral-200 font-medium" : "hover:bg-neutral-100"
+            }`}
+          >
+            ★ Starred ({Object.values(starMap).filter(Boolean).length})
+          </button>
           {folders.map((f) => (
             <div key={f.id} className="group flex items-center">
               <button
@@ -214,9 +243,20 @@ export default function CollectionsClient({
                   </Link>
                   <div className="p-3">
                     <div className="flex items-center justify-between gap-2">
-                      <Link href={`/collections/${c.id}`} className="font-medium text-sm truncate">
-                        {c.name}
-                      </Link>
+                      <div className="flex items-center gap-1 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => toggleStar(c.id)}
+                          title={starMap[c.id] ? "Unstar" : "Star"}
+                          aria-pressed={starMap[c.id]}
+                          className={`text-sm leading-none ${starMap[c.id] ? "text-amber-500" : "text-neutral-300 hover:text-neutral-500"}`}
+                        >
+                          {starMap[c.id] ? "★" : "☆"}
+                        </button>
+                        <Link href={`/collections/${c.id}`} className="font-medium text-sm truncate">
+                          {c.name}
+                        </Link>
+                      </div>
                       <span
                         className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${
                           STATUS_STYLES[c.status] ?? "bg-neutral-100 text-neutral-600"
@@ -290,6 +330,7 @@ export default function CollectionsClient({
                 <label className="label">Apply a Collection Preset</label>
                 <select className="input" value={presetId} onChange={(e) => setPresetId(e.target.value)}>
                   <option value="">No preset, Pixelset defaults</option>
+                  {/* Phase 5B platform: the account default preset is preselected */}
                   {presets.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}

@@ -14,6 +14,10 @@ import {
   resolveGiftCard,
   type PricedLine,
 } from "@/lib/store";
+import { formatStoreMoney, parseFrames, quoteShipping, resolveTax } from "@/lib/store-rates";
+import { createPayout, selfShareCents } from "@/lib/store-orders";
+import { settleOrderMaths } from "@/lib/order-maths";
+import { effectiveVariantPriceCents, parsePackageItems } from "@/lib/store-pricing";
 
 // Public gallery checkout. POST { lines, customer, couponCode, giftCardCode, confirm }
 // confirm=false → totals preview; confirm=true → create the order (mock payment always succeeds).
@@ -30,6 +34,14 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
   }
   if (collection.status === "DRAFT") {
     return NextResponse.json({ error: "This gallery is not available" }, { status: 404 });
+  }
+
+  const storeProfile = await getStoreProfile(collection.userId);
+  if (!storeProfile.storeOpen) {
+    return NextResponse.json(
+      { error: storeProfile.closedMessage || "The store is closed right now, please check back soon" },
+      { status: 403 }
+    );
   }
 
   const body = await req.json();
@@ -54,6 +66,10 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
     const photo = photoById.get(String(raw.photoId ?? ""));
     if (!photo || photo.isPrivate) return NextResponse.json({ error: "A photo in your cart is not available" }, { status: 400 });
     const qty = Math.min(50, Math.max(1, Math.round(Number(raw.qty) || 1)));
+    // Phase 5B: optional frame choice, priced on top of the size
+    const frameWanted = typeof raw.frame === "string" ? raw.frame.trim() : "";
+    const frame = frameWanted ? parseFrames(product.frameOptions).find((f) => f.name === frameWanted) : undefined;
+    if (frameWanted && !frame) return NextResponse.json({ error: "A frame option in your cart is no longer available" }, { status: 400 });
     lines.push({
       productId: product.id,
       productName: product.name,
@@ -63,30 +79,105 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
       photoUrl: photo.url,
       photoName: photo.filename,
       qty,
-      unitCents: variant.priceCents,
+      // MARKUP products price from lab cost + markup; FIXED use the stored price.
+      unitCents: effectiveVariantPriceCents(product, variant) + (frame?.priceCents ?? 0),
       shippingCents: product.shippingCents,
       isDigital: product.category === "DIGITAL",
+      selfFulfilled: product.selfFulfilled,
+      frameName: frame?.name ?? "",
     });
   }
 
-  const storeProfile = await getStoreProfile(collection.userId);
+  // Night build follow-up: package products expand into their component
+  // items, so fulfillment, lab routing, payout maths and digital downloads
+  // treat the bundle's contents as real items (priced at 0; the package line
+  // carries the price). Components use the package line's photo.
+  type ExtraItem = {
+    productId: string;
+    productName: string;
+    variantName: string;
+    category: string;
+    photoId: string;
+    photoUrl: string;
+    photoName: string;
+    qty: number;
+    unitCents: number;
+    frameName: string;
+    isDigital: boolean;
+    selfFulfilled: boolean;
+  };
+  const extraItems: ExtraItem[] = [];
+  for (const l of lines) {
+    const product = products.get(l.productId);
+    if (!product || product.category !== "PACKAGE") continue;
+    for (const comp of parsePackageItems(product.packageItems)) {
+      const cp = products.get(comp.productId);
+      const cv = cp?.variants.find((v) => v.id === comp.variantId);
+      if (!cp || !cv) {
+        return NextResponse.json({ error: "A product inside a package in your cart is no longer available" }, { status: 400 });
+      }
+      extraItems.push({
+        productId: cp.id,
+        productName: `${cp.name} · in ${product.name}`,
+        variantName: cv.name,
+        category: cp.category,
+        photoId: l.photoId,
+        photoUrl: l.photoUrl,
+        photoName: l.photoName,
+        qty: l.qty * comp.qty,
+        unitCents: 0,
+        frameName: "",
+        isDigital: cp.category === "DIGITAL",
+        selfFulfilled: cp.selfFulfilled,
+      });
+    }
+  }
+
   const couponCode = typeof body.couponCode === "string" ? body.couponCode : "";
   const giftCode = typeof body.giftCardCode === "string" ? body.giftCardCode : "";
   const { coupon, error: couponError } = await resolveCoupon(collection.userId, couponCode);
   const { giftCard, error: giftCardError } = await resolveGiftCard(collection.userId, giftCode);
+
+  // Phase 5B: named shipping methods per fulfillment group, regional tax.
+  const [methods, manualRates] = await Promise.all([
+    db.shippingMethod.findMany({ where: { userId: collection.userId, active: true }, orderBy: { order: "asc" } }),
+    db.taxRate.findMany({ where: { userId: collection.userId, active: true } }),
+  ]);
+  const selection = body.shipping && typeof body.shipping === "object" ? (body.shipping as Record<string, string>) : {};
+  const shippingQuote = quoteShipping(
+    lines.map((l) => ({ ...l, selfFulfilled: l.selfFulfilled !== false })),
+    methods,
+    selection
+  );
+  const country = typeof body.country === "string" ? body.country.trim().toUpperCase().slice(0, 10) : "";
+  const region = typeof body.region === "string" ? body.region.trim().toUpperCase().slice(0, 10) : "";
+  const tax = resolveTax(storeProfile, manualRates, country, region);
 
   const totals = computeCheckout({
     lines,
     coupon,
     couponError,
     taxEnabled: storeProfile.taxEnabled,
-    taxRate: storeProfile.taxRate,
+    taxRate: tax.ratePct,
     giftCardBalance: giftCard ? giftCard.balanceCents : null,
     giftCardError,
+    shippingCents: shippingQuote.total,
+    taxShipping: storeProfile.taxShipping,
   });
+  const paymentMethods = [
+    ...(storeProfile.cardPayments ? [{ id: "card", label: "Card (mocked per the owner's payments exclusion)" }] : []),
+    ...(storeProfile.offlinePayments ? [{ id: "offline", label: "Pay offline", instructions: storeProfile.offlineInstructions }] : []),
+  ];
+  const meta = {
+    shippingGroups: shippingQuote.groups,
+    taxLabel: tax.label,
+    taxRatePct: tax.ratePct,
+    paymentMethods,
+    currency: storeProfile.currency,
+  };
 
   if (!body.confirm) {
-    return NextResponse.json({ totals, digitalLicense: storeProfile.digitalLicense });
+    return NextResponse.json({ totals, ...meta, digitalLicense: storeProfile.digitalLicense });
   }
 
   // ---- Confirm: validate customer, create the order (mock payment) ----
@@ -99,13 +190,26 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
   if (!customerName || !/.+@.+\..+/.test(customerEmail)) {
     return NextResponse.json({ error: "Please enter your name and a valid email" }, { status: 400 });
   }
-  const hasPhysical = lines.some((l) => !l.isDigital);
+  const hasPhysical = lines.some((l) => !l.isDigital) || extraItems.some((e) => !e.isDigital);
+  if (storeProfile.taxEnabled && storeProfile.taxMode === "AUTO" && !country) {
+    return NextResponse.json({ error: "Please choose your country and state or province for tax" }, { status: 400 });
+  }
+  let paymentMethod = typeof body.paymentMethod === "string" ? body.paymentMethod : paymentMethods[0]?.id ?? "card";
+  if (totals.total === 0) paymentMethod = "gift card";
+  else if (!paymentMethods.some((m) => m.id === paymentMethod)) {
+    return NextResponse.json({ error: "That payment method is not offered by this store" }, { status: 400 });
+  }
+  const awaiting = paymentMethod === "offline";
   if (hasPhysical && !shippingAddress) {
     return NextResponse.json({ error: "A shipping address is required for print orders" }, { status: 400 });
   }
 
-  const selfCount = lines.filter((l) => !l.isDigital && products.get(l.productId)?.selfFulfilled).length;
-  const labCount = lines.filter((l) => !l.isDigital && !products.get(l.productId)?.selfFulfilled).length;
+  const selfCount =
+    lines.filter((l) => !l.isDigital && products.get(l.productId)?.selfFulfilled).length +
+    extraItems.filter((e) => !e.isDigital && e.selfFulfilled).length;
+  const labCount =
+    lines.filter((l) => !l.isDigital && !products.get(l.productId)?.selfFulfilled).length +
+    extraItems.filter((e) => !e.isDigital && !e.selfFulfilled).length;
   const fulfillment = !hasPhysical ? "DIGITAL" : labCount === 0 ? "SELF" : selfCount === 0 ? "LAB" : "MIXED";
 
   const order = await db.order.create({
@@ -125,26 +229,54 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
       totalCents: totals.total,
       couponCode: coupon ? coupon.code : "",
       giftCardCode: giftCard ? giftCard.code : "",
-      paymentMethod: totals.total === 0 ? "gift card" : "card",
+      paymentMethod,
+      paymentStatus: awaiting ? "AWAITING_PAYMENT" : "PAID",
+      shippingMethod: shippingQuote.groups.map((g) => `${g.label}: ${g.selectedName}`).join("; "),
+      shippingCountry: country,
+      shippingRegion: region,
+      taxLabel: totals.tax > 0 ? tax.label : "",
       fulfillment,
       items: {
-        create: lines.map((l) => ({
-          productId: l.productId,
-          productName: l.productName,
-          variantName: l.variantName,
-          category: l.category,
-          photoId: l.photoId,
-          photoUrl: l.photoUrl,
-          photoName: l.photoName,
-          qty: l.qty,
-          unitCents: l.unitCents,
-          downloadToken: l.isDigital ? newDownloadToken() : null,
-          downloadExpires: l.isDigital ? downloadExpiry() : null,
-        })),
+        create: [
+          ...lines.map((l) => ({
+            productId: l.productId,
+            productName: l.productName,
+            variantName: l.variantName,
+            category: l.category,
+            photoId: l.photoId,
+            photoUrl: l.photoUrl,
+            photoName: l.photoName,
+            qty: l.qty,
+            unitCents: l.unitCents,
+            frameName: l.frameName ?? "",
+            // offline orders get their links once the photographer marks them paid
+            downloadToken: l.isDigital && !awaiting ? newDownloadToken() : null,
+            downloadExpires: l.isDigital && !awaiting ? downloadExpiry() : null,
+          })),
+          // Package components ride along as their own items at $0.
+          ...extraItems.map((e) => ({
+            productId: e.productId,
+            productName: e.productName,
+            variantName: e.variantName,
+            category: e.category,
+            photoId: e.photoId,
+            photoUrl: e.photoUrl,
+            photoName: e.photoName,
+            qty: e.qty,
+            unitCents: 0,
+            frameName: "",
+            downloadToken: e.isDigital && !awaiting ? newDownloadToken() : null,
+            downloadExpires: e.isDigital && !awaiting ? downloadExpiry() : null,
+          })),
+        ],
       },
     },
     include: { items: true },
   });
+
+  // Night build (Pricing lane): snapshot the payout maths (lab costs,
+  // processor fee, plan commission on the pre-discount subtotal, payout).
+  await settleOrderMaths(order.id);
 
   if (coupon) {
     await db.coupon.update({ where: { id: coupon.id }, data: { useCount: { increment: 1 } } });
@@ -161,11 +293,28 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
   let labNote = "";
   if (labCount > 0) {
     const labOrder = await createLabOrder(order.id);
-    if (labOrder) {
+    if (labOrder && !awaiting) {
       const result = await sendLabOrder(labOrder.id);
       labNote = result.detail;
+    } else if (labOrder) {
+      labNote = "held until the offline payment is marked received";
     }
   }
+
+  // Self fulfilled and digital revenue is paid to the photographer directly
+  // (mocked per the owner's payments exclusion), recorded as a payout.
+  await createPayout({
+    userId: collection.userId,
+    orderId: order.id,
+    amountCents: selfShareCents(
+      order,
+      lines.map((l) => ({ category: l.category, qty: l.qty, unitCents: l.unitCents, selfFulfilled: l.selfFulfilled !== false }))
+    ),
+    method: paymentMethod,
+    awaiting,
+    note: awaiting ? "Offline payment, collect directly from the client" : "Paid to you directly (mocked per the owner's payments exclusion)",
+  });
+  const money = (c: number) => formatStoreMoney(c, storeProfile.currency);
 
   await logActivity(
     collection.id,
@@ -185,10 +334,10 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
 
 Thank you for your order from "${collection.name}".
 
-${lines.map((l) => `- ${l.productName} (${l.variantName}) × ${l.qty}, ${fmtMoney(l.unitCents * l.qty)}`).join("\n")}
+${[...lines, ...extraItems].map((l) => `- ${l.productName} (${l.variantName}${l.frameName ? `, ${l.frameName}` : ""}) x ${l.qty}, ${money(l.unitCents * l.qty)}`).join("\n")}
 
-Subtotal: ${fmtMoney(totals.subtotal)}${totals.discount ? `\nDiscount: -${fmtMoney(totals.discount)}` : ""}${totals.shipping ? `\nShipping: ${fmtMoney(totals.shipping)}` : ""}${totals.tax ? `\nTax: ${fmtMoney(totals.tax)}` : ""}${totals.giftCard ? `\nGift card: -${fmtMoney(totals.giftCard)}` : ""}
-Total charged: ${fmtMoney(totals.total)}
+Subtotal: ${money(totals.subtotal)}${totals.discount ? `\nDiscount: -${money(totals.discount)}` : ""}${totals.shipping ? `\nShipping (${shippingQuote.groups.map((g) => g.selectedName).join(", ")}): ${money(totals.shipping)}` : ""}${totals.tax ? `\n${tax.label}: ${money(totals.tax)}` : ""}${totals.giftCard ? `\nGift card: -${money(totals.giftCard)}` : ""}
+${awaiting ? `Total due: ${money(totals.total)}\n\nHow to pay: ${storeProfile.offlineInstructions || "the photographer will contact you with payment details"}.${digitalItems.length ? " Your download links are emailed once payment is received." : ""}` : `Total charged: ${money(totals.total)}`}
 ${
   digitalItems.length
     ? `\nYour digital downloads (links expire in 7 days):\n${digitalItems
@@ -205,13 +354,19 @@ ${businessName}`,
     email: customerEmail,
     subject: `New store order ${order.number}, ${fmtMoney(totals.total)}`,
     body: `${customerName} ordered ${lines.length} item${lines.length === 1 ? "" : "s"} from “${collection.name}” (${fmtMoney(totals.total)} charged${totals.giftCard ? `, ${fmtMoney(totals.giftCard)} by gift card` : ""}). Fulfillment: ${fulfillment}.${labNote ? ` Lab: ${labNote}.` : ""}`,
-    meta: `Mock payment · store · confirmation ${deliveryNote(confirmationMail)}`,
+    meta: `${awaiting ? "Offline payment, awaiting" : "Mock payment"} · store · confirmation ${deliveryNote(confirmationMail)}`,
     read: false,
   });
 
   return NextResponse.json({
     orderNumber: order.number,
     totals,
+    ...meta,
+    paymentMethod,
+    awaitingPayment: awaiting,
+    offlineInstructions: awaiting ? storeProfile.offlineInstructions : "",
+    emailDelivered: confirmationMail.sent,
+    emailNote: deliveryNote(confirmationMail),
     digitalLicense: storeProfile.digitalLicense,
     downloads: order.items
       .filter((i) => i.downloadToken)

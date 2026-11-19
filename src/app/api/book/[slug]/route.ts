@@ -9,7 +9,13 @@ import {
   upsertContact,
 } from "@/lib/studio";
 import { formatDate } from "@/lib/utils";
-import { deliveryNote, sendMail } from "@/lib/mailer";
+import { generateMeetingLink, isSlotOpen, whereLabel } from "@/lib/availability";
+import { resolveBookingCoupon } from "@/lib/booking-coupons";
+import { syncBookingToGoogle } from "@/lib/google-calendar";
+import { sendBookingConfirmation } from "@/lib/studio-flow";
+import { notify } from "@/lib/notify";
+import { randomUUID } from "crypto";
+import { STUDIO_LIMITS, planFor } from "@/lib/plans";
 
 // Public booking endpoint for /book/[slug]. Creates the booking (or a waitlist
 // entry when a mini slot is full), the contact, the questionnaire response and -
@@ -35,6 +41,11 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
   if (!/.+@.+\..+/.test(email)) return NextResponse.json({ error: "Enter a valid email" }, { status: 400 });
   const phone = typeof body.phone === "string" ? body.phone.trim() : "";
 
+  if (sessionType.locationType === "PHONE" && !sessionType.location && !phone) {
+    // the photographer calls the client, so a number is required
+    return NextResponse.json({ error: "Enter a phone number so we can call you." }, { status: 400 });
+  }
+
   // ---- Resolve the time: a mini slot, or a date + time for regular sessions.
   let startsAt: Date;
   let endsAt: Date;
@@ -44,7 +55,7 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
   if (sessionType.isMini) {
     const slot = await db.miniSlot.findFirst({
       where: { id: String(body.slotId ?? ""), date: { sessionTypeId: sessionType.id } },
-      include: { bookings: { where: { status: { in: ["CONFIRMED", "PENDING"] } } } },
+      include: { bookings: { where: { status: { in: ["CONFIRMED", "PENDING", "AWAITING_CLIENT"] } } } },
     });
     if (!slot) return NextResponse.json({ error: "Pick a time slot" }, { status: 400 });
     if (slot.bookings.length >= slot.capacity) {
@@ -67,6 +78,11 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
     if (startsAt.getTime() < Date.now()) {
       return NextResponse.json({ error: "Pick a date in the future" }, { status: 400 });
     }
+    // Phase 5B: the time must be one of the live computed slots (hours, notice,
+    // daily cap, buffers, and every existing booking are all checked here).
+    if (!(await isSlotOpen(sessionType, startsAt))) {
+      return NextResponse.json({ error: "That time is no longer available, pick another slot." }, { status: 409 });
+    }
     endsAt = new Date(startsAt.getTime() + sessionType.durationMin * 60_000);
   }
 
@@ -77,8 +93,24 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
   // ---- Totals + retainer.
   const items = [{ description: sessionType.name, qty: 1, unitCents: sessionType.priceCents }];
   for (const a of chosenAddOns) items.push({ description: a.name, qty: 1, unitCents: a.priceCents });
-  const totals = calcTotals(items, sessionType.taxRate, "NONE", 0);
-  const retainer = retainerAmount(sessionType.retainerType, sessionType.retainerValue, totals.total);
+  // Night build follow-up: booking coupon, validated against the pre-tax
+  // subtotal and applied as a fixed discount before tax and retainer maths.
+  const subtotalCents = items.reduce((s, it) => s + it.unitCents, 0);
+  const couponCodeIn = typeof body.couponCode === "string" ? body.couponCode : "";
+  const couponOut = couponCodeIn
+    ? await resolveBookingCoupon(user.id, couponCodeIn, sessionType.id, subtotalCents)
+    : { coupon: null, discountCents: 0, error: "" };
+  if (couponCodeIn && !couponOut.coupon) {
+    return NextResponse.json({ error: couponOut.error || "Unknown coupon code" }, { status: 400 });
+  }
+  const totals = calcTotals(items, sessionType.taxRate, couponOut.discountCents > 0 ? "FIXED" : "NONE", couponOut.discountCents);
+  // Phase 5B platform: retainers at booking and manual approval are Studio
+  // Manager Pro features, enforced against the account's (simulated) plan.
+  const studioLimits = STUDIO_LIMITS[(await planFor(user.id)).studio];
+  const retainer = studioLimits.retainers
+    ? retainerAmount(sessionType.retainerType, sessionType.retainerValue, totals.total)
+    : 0;
+  const needsApproval = !waitlisted && sessionType.requiresApproval && studioLimits.manualApproval;
 
   const contact = await upsertContact(user.id, { name, email, phone });
 
@@ -91,15 +123,37 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
       title: sessionType.name,
       startsAt,
       endsAt,
-      status: waitlisted ? "WAITLIST" : "CONFIRMED",
+      status: waitlisted ? "WAITLIST" : needsApproval ? "PENDING" : "CONFIRMED",
+      approvalState: needsApproval ? "REQUESTED" : "",
       totalCents: totals.total,
+      couponCode: couponOut.coupon?.code ?? "",
+      discountCents: couponOut.discountCents,
       retainerCents: retainer,
       paymentStatus: "UNPAID",
       addOns: JSON.stringify(chosenAddOns.map((a) => ({ name: a.name, priceCents: a.priceCents }))),
       notes: typeof body.notes === "string" ? body.notes.slice(0, 2000) : "",
       source: sessionType.isMini ? "MINI" : "BOOKING_SITE",
+      clientToken: randomUUID(),
+      meetingLink:
+        sessionType.locationType === "VIDEO"
+          ? sessionType.meetingLink || generateMeetingLink(`${sessionType.name}-${name}`)
+          : sessionType.locationType === "ZOOM"
+            ? sessionType.location
+            : "",
+      callPhone: sessionType.locationType === "PHONE" ? phone : "",
     },
   });
+
+
+  if (couponOut.coupon) {
+    await db.bookingCoupon.update({
+      where: { id: couponOut.coupon.id },
+      data: { useCount: { increment: 1 } },
+    });
+  }
+  // Night build follow-up: mirror the booking to Google Calendar when the
+  // photographer has two way sync connected (best effort, never blocks).
+  await syncBookingToGoogle(booking.id);
 
   // ---- Questionnaire response (answers keyed by field id).
   if (sessionType.questionnaire && body.answers && typeof body.answers === "object") {
@@ -132,7 +186,7 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
       client_phone: phone,
       session_type: sessionType.name,
       session_date: formatDate(startsAt),
-      session_location: sessionType.locationType === "ZOOM" ? "Zoom (link to follow)" : sessionType.location,
+      session_location: whereLabel(sessionType, booking),
       session_price: fmtMoney(totals.total),
       retainer: fmtMoney(retainer),
       business_name: user.businessName || user.name,
@@ -148,6 +202,9 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
         title: `${sessionType.contractTemplate.name}, ${name}`,
         body: rendered,
         status: "SENT",
+        brandLogoUrl: sessionType.contractTemplate.brandLogoUrl,
+        brandColor: sessionType.contractTemplate.brandColor,
+        headerImageUrl: sessionType.contractTemplate.headerImageUrl,
         sentAt: new Date(),
       },
     });
@@ -157,7 +214,7 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
   }
 
   // ---- Feed the projects board (waitlist entries stay off the board until promoted).
-  if (!waitlisted) {
+  if (!waitlisted && !needsApproval) {
     const max = await db.project.aggregate({ where: { userId: user.id, stage: "BOOKED" }, _max: { order: true } });
     await db.project.create({
       data: {
@@ -178,55 +235,44 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
     email,
     subject: waitlisted
       ? `Waitlist: ${sessionType.name}, ${name}`
-      : `New booking: ${sessionType.name}, ${name}`,
+      : needsApproval
+        ? `Booking request (needs your approval): ${sessionType.name}, ${name}`
+        : `New booking: ${sessionType.name}, ${name}`,
     body: waitlisted
       ? `${name} joined the waitlist for ${sessionType.name} on ${formatDate(startsAt)}.`
       : `${name} booked ${sessionType.name} on ${formatDate(startsAt)} (${fmtMoney(totals.total)} total${retainer ? `, ${fmtMoney(retainer)} retainer due` : ""}).`,
     meta: phone ? `Phone ${phone}` : "",
   });
-  const businessName = user.businessName || user.name;
-  const confirmationMail = await sendMail({
-    userId: user.id,
-    to: email,
-    subject: waitlisted
-      ? `You're on the waitlist: ${sessionType.name}`
-      : `Booking confirmed: ${sessionType.name} on ${formatDate(startsAt)}`,
-    text: waitlisted
-      ? `Hi ${name},
-
-You're on the waitlist for ${sessionType.name} on ${formatDate(startsAt)}. We'll contact you as soon as a spot opens up.
-
-${businessName}`
-      : `Hi ${name},
-
-Your booking is confirmed.
-
-Session: ${sessionType.name}
-Date: ${formatDate(startsAt)}
-${sessionType.location ? `Location: ${sessionType.location}\n` : ""}Total: ${fmtMoney(totals.total)}${retainer ? `\nRetainer due now: ${fmtMoney(retainer)}` : ""}
-
-We're looking forward to seeing you.
-
-${businessName}`,
-  });
-  await logStudioMessage(user.id, {
-    kind: "EMAIL",
-    name,
-    email,
-    subject: waitlisted ? `Waitlist confirmation emailed to ${email}` : `Booking confirmation emailed to ${email}`,
-    body: waitlisted
-      ? `We emailed ${name} that they're on the waitlist for ${sessionType.name} and will be contacted if a spot opens.`
-      : `We emailed ${name} their booking confirmation for ${sessionType.name} on ${formatDate(startsAt)}.`,
-    meta: deliveryNote(confirmationMail),
-  });
+  await sendBookingConfirmation(booking.id);
+  await upsertContactState(contact.id, waitlisted || needsApproval);
+  await notify(
+    user.id,
+    "BOOKING",
+    waitlisted ? `Waitlist: ${name}` : needsApproval ? `Booking request to approve: ${name}` : `New booking: ${name}`,
+    `${sessionType.name} on ${formatDate(startsAt)}`,
+    "/studio/calendar"
+  );
 
   return NextResponse.json({
     bookingId: booking.id,
     waitlisted,
-    contractToken,
-    contractBody,
-    contractTitle,
+    awaitingApproval: needsApproval,
+    // With manual approval the contract and retainer wait until the photographer approves.
+    contractToken: needsApproval ? null : contractToken,
+    contractBody: needsApproval ? "" : contractBody,
+    contractTitle: needsApproval ? "" : contractTitle,
     totalCents: totals.total,
-    retainerCents: retainer,
+    discountCents: couponOut.discountCents,
+    couponCode: couponOut.coupon?.code ?? "",
+    retainerCents: needsApproval ? 0 : retainer,
+    meetingLink: booking.meetingLink,
+    where: whereLabel(sessionType, booking),
+    manageToken: booking.clientToken,
   });
+}
+
+// First confirmed booking moves a contact from lead to client.
+async function upsertContactState(contactId: string, waitlisted: boolean) {
+  if (waitlisted) return;
+  await db.contact.update({ where: { id: contactId }, data: { state: "CLIENT" } }).catch(() => null);
 }

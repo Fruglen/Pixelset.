@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { parseItems } from "@/lib/studio";
+import { parseQuoteItems } from "@/lib/studio";
 import { QuoteEditor } from "./quote-editor";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +28,8 @@ export default async function QuoteEditPage({ params }: { params: { id: string }
         token: quote.token,
         contactId: quote.contactId ?? "",
         validUntil: quote.validUntil ? quote.validUntil.toISOString().slice(0, 10) : "",
-        items: parseItems(quote.items),
+        items: parseQuoteItems(quote.items),
+        selection: quote.selection ? (JSON.parse(quote.selection) as number[]) : null,
         taxRate: quote.taxRate,
         discountType: quote.discountType,
         discountValue: quote.discountValue,

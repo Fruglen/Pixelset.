@@ -9,9 +9,11 @@ export const PRODUCT_CATEGORIES = [
   { id: "METAL", label: "Metal" },
   { id: "ACRYLIC", label: "Acrylic" },
   { id: "WOOD", label: "Wood" },
+  { id: "FRAMED", label: "Framed Prints & Wall Art" },
   { id: "ALBUM", label: "Albums & Books" },
   { id: "CARD", label: "Cards" },
   { id: "DIGITAL", label: "Digital Downloads" },
+  { id: "PACKAGE", label: "Packages" },
 ] as const;
 
 export function categoryLabel(id: string): string {
@@ -58,6 +60,8 @@ export interface PricedLine {
   unitCents: number;
   shippingCents: number; // per-product flat shipping (counted once per product line)
   isDigital: boolean;
+  selfFulfilled?: boolean; // Phase 5B: shipping group
+  frameName?: string; // Phase 5B: chosen frame (price included in unitCents)
 }
 
 export interface CheckoutTotals {
@@ -88,10 +92,13 @@ export function computeCheckout(opts: {
   taxRate: number;
   giftCardBalance: number | null;
   giftCardError?: string;
+  shippingCents?: number; // Phase 5B: quoted from shipping methods (overrides per product flat)
+  taxShipping?: boolean; // Phase 5B: tax applies to shipping too
 }): CheckoutTotals {
   const subtotal = opts.lines.reduce((s, l) => s + l.qty * l.unitCents, 0);
   // Flat shipping: counted once per distinct physical line.
-  let shipping = opts.lines.filter((l) => !l.isDigital).reduce((s, l) => s + l.shippingCents, 0);
+  let shipping =
+    opts.shippingCents ?? opts.lines.filter((l) => !l.isDigital).reduce((s, l) => s + l.shippingCents, 0);
 
   let discount = 0;
   let couponError = opts.couponError ?? "";
@@ -118,7 +125,7 @@ export function computeCheckout(opts: {
   discount = Math.min(discount, subtotal);
 
   const taxable = subtotal - discount;
-  const tax = opts.taxEnabled ? Math.round((taxable * opts.taxRate) / 100) : 0;
+  const tax = opts.taxEnabled ? Math.round(((taxable + (opts.taxShipping ? shipping : 0)) * opts.taxRate) / 100) : 0;
   const preGift = taxable + shipping + tax;
 
   let giftCard = 0;
@@ -168,6 +175,35 @@ export async function resolveCoupon(userId: string, code: string) {
   if (coupon.useLimit !== null && coupon.useCount >= coupon.useLimit)
     return { coupon: null, error: "This coupon has reached its use limit" };
   return { coupon, error: "" };
+}
+
+/**
+ * Coupons flagged for the gallery banner (night build follow-up, store lane).
+ * Returns the active, unexpired coupons whose showBanner flag is on, newest
+ * first, with the display text resolved (bannerText, else a generated line).
+ * The gallery render that mounts this banner lives in the Client Gallery
+ * files owned by another lane; this helper is the data hand-off for it.
+ */
+export async function activeBannerCoupons(userId: string) {
+  const now = new Date();
+  const coupons = await db.coupon.findMany({
+    where: { userId, active: true, showBanner: true },
+    orderBy: { createdAt: "desc" },
+  });
+  return coupons
+    .filter((c) => !c.expiresAt || c.expiresAt > now)
+    .filter((c) => c.useLimit == null || c.useLimit === 0 || c.useCount < c.useLimit)
+    .map((c) => ({
+      id: c.id,
+      code: c.code,
+      type: c.type,
+      value: c.value,
+      text:
+        c.bannerText ||
+        (c.type === "PERCENT"
+          ? `Save ${c.value}% with code ${c.code}`
+          : `Save with code ${c.code}`),
+    }));
 }
 
 /** Validate a gift card code at checkout time. */

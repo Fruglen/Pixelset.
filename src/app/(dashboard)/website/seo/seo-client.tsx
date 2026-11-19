@@ -94,6 +94,43 @@ export function SeoClient({ siteSlug, logoText, pages: initialPages, redirects }
     router.refresh();
   }
 
+  const [genBusy, setGenBusy] = useState("");
+
+  // Night build: AI alt text (Gemini). Connected: the server describes the
+  // image and saves it. Not connected: a labelled basic suggestion fills
+  // the field for review, nothing is saved automatically.
+  async function generateAlt(page: SeoPage, im: ImageRef) {
+    const key = `${page.id}:${im.blockId}:${im.path}`;
+    setGenBusy(key);
+    setNote("");
+    const res = await fetch("/api/website/ai-alt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pageId: page.id, blockId: im.blockId, path: im.path }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setGenBusy("");
+    if (!res.ok) return setNote(data.error ?? "Generation failed");
+    if (typeof data.alt === "string") editAlt(page, im, data.alt);
+    setNote(data.saved ? `AI alt text saved for ${page.title}.` : data.note ?? "Suggestion added, review it and save.");
+    if (data.saved) router.refresh();
+  }
+
+  async function generateAllAlt(page: SeoPage) {
+    setGenBusy(`all:${page.id}`);
+    setNote("");
+    const res = await fetch("/api/website/ai-alt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pageId: page.id, all: true }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setGenBusy("");
+    if (!res.ok) return setNote(data.error ?? "Generation failed");
+    setNote(`Generated alt text for ${data.updated} of ${data.total} missing images on ${page.title}.`);
+    router.refresh();
+  }
+
   function editAlt(page: SeoPage, ref: ImageRef, alt: string) {
     const blocks = withAlt(page.blocks, ref, alt);
     setPage(page.id, {
@@ -116,6 +153,22 @@ export function SeoClient({ siteSlug, logoText, pages: initialPages, redirects }
     }
     setFrom("");
     setTo("");
+    router.refresh();
+  }
+
+  async function editRedirect(id: string, current: string) {
+    const next = prompt("New destination for this redirect", current);
+    if (next === null || !next.trim() || next.trim() === current) return;
+    const res = await fetch(`/api/website/redirects/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ toPath: next }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setRedirectError(data.error ?? "Could not update the redirect");
+      return;
+    }
     router.refresh();
   }
 
@@ -206,11 +259,26 @@ export function SeoClient({ siteSlug, logoText, pages: initialPages, redirects }
                       value={im.alt}
                       onChange={(e) => editAlt(page, im, e.target.value)}
                     />
+                    <button
+                      className="text-xs underline text-neutral-500 hover:text-neutral-900 flex-none disabled:opacity-50"
+                      disabled={genBusy !== ""}
+                      onClick={() => generateAlt(page, im)}
+                      title="Generate alt text with AI"
+                    >
+                      {genBusy === `${page.id}:${im.blockId}:${im.path}` ? "Generating…" : "Generate"}
+                    </button>
                   </div>
                 ))}
-                <button className="btn-primary mt-2" disabled={savingId === page.id} onClick={() => saveAlts(page)}>
-                  {savingId === page.id ? "Saving…" : "Save alt text"}
-                </button>
+                <div className="flex gap-2 mt-2">
+                  <button className="btn-primary" disabled={savingId === page.id} onClick={() => saveAlts(page)}>
+                    {savingId === page.id ? "Saving…" : "Save alt text"}
+                  </button>
+                  {page.images.some((im) => !im.alt.trim()) ? (
+                    <button className="btn-secondary" disabled={genBusy !== ""} onClick={() => generateAllAlt(page)}>
+                      {genBusy === `all:${page.id}` ? "Generating…" : "Generate all missing with AI"}
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </details>
           ))}
@@ -220,7 +288,7 @@ export function SeoClient({ siteSlug, logoText, pages: initialPages, redirects }
       <section>
         <h2 className="font-medium">301 redirects</h2>
         <p className="text-sm text-neutral-500 mb-3">
-          Permanently forward old paths on your site to new destinations (served as a permanent redirect).
+          Permanently forward old paths on your site to new destinations. Visitors and search engines get a real 301 Moved Permanently response; matching ignores letter case and a trailing slash, the query string is carried over, chains are followed and loops are refused.
         </p>
         <div className="card p-4">
           <div className="flex gap-2 items-center flex-wrap">
@@ -237,6 +305,8 @@ export function SeoClient({ siteSlug, logoText, pages: initialPages, redirects }
                   <code className="text-xs bg-neutral-50 rounded px-1.5 py-0.5">{r.fromPath}</code>
                   <span className="text-neutral-400">→</span>
                   <code className="text-xs bg-neutral-50 rounded px-1.5 py-0.5 flex-1 truncate">{r.toPath}</code>
+                  <span className="text-[10px] uppercase tracking-wider text-neutral-400">301</span>
+                  <button onClick={() => editRedirect(r.id, r.toPath)} className="text-xs text-neutral-400 hover:text-neutral-900 underline">Edit</button>
                   <button onClick={() => removeRedirect(r.id)} className="text-neutral-400 hover:text-red-600">✕</button>
                 </div>
               ))}

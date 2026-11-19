@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 type App = {
@@ -13,17 +13,34 @@ type App = {
   enabled: boolean;
   collectionName: string;
   coverUrl: string;
+  clients: AppClient[];
 };
+
+type AppClient = {
+  id: string;
+  slug: string;
+  clientName: string;
+  clientEmail: string;
+  greeting: string;
+  lastOpenedAt: string | null;
+};
+
+type Contact = { id: string; name: string; email: string };
 
 export default function MobileAppsClient({
   apps,
   collections,
   defaultEmail,
+  contacts = [],
+  planInfo,
 }: {
   apps: App[];
   collections: { id: string; name: string }[];
   defaultEmail: string;
+  contacts?: Contact[];
+  planInfo?: { label: string; limit: number | null; used: number };
 }) {
+  const atLimit = !!planInfo && planInfo.limit !== null && planInfo.used >= planInfo.limit;
   const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [collectionId, setCollectionId] = useState(collections[0]?.id ?? "");
@@ -34,7 +51,7 @@ export default function MobileAppsClient({
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
 
-  async function create(e: React.FormEvent) {
+  async function create(e: FormEvent) {
     e.preventDefault();
     setError("");
     const res = await fetch("/api/mobile-apps", {
@@ -78,18 +95,21 @@ export default function MobileAppsClient({
         <div>
           <h1 className="text-2xl font-display">Mobile Gallery App</h1>
           <p className="text-sm text-neutral-500 mt-1">
-            An installable, branded app page per collection, clients add it to their home screen with your logo,
+            An installable, branded app page per collection and per client. Clients add it to their home screen with your logo, a personal greeting,
             their cover photo, and one-tap contact buttons.
           </p>
         </div>
-        <button className="btn-primary shrink-0" onClick={() => setCreating((v) => !v)} disabled={collections.length === 0}>
+        <button className="btn-primary shrink-0" onClick={() => setCreating((v) => !v)} disabled={collections.length === 0 || atLimit}>
           + Create App
         </button>
       </div>
 
-      <p className="text-xs text-neutral-400 mb-4">
-        Pixieset includes 3 apps on the free plan, unlimited on paid, everything is unlocked in this replica.
-      </p>
+      {planInfo ? (
+        <p className="text-xs text-neutral-500 mb-4">
+          {planInfo.label} plan: {planInfo.used} of {planInfo.limit === null ? "unlimited" : planInfo.limit} apps used.
+          {atLimit ? " You have reached your plan's app limit, delete an app or upgrade in Settings, Plan to add more." : ""}
+        </p>
+      ) : null}
 
       {creating && (
         <form onSubmit={create} className="card p-4 mb-6 grid md:grid-cols-2 gap-3 max-w-2xl">
@@ -164,9 +184,131 @@ export default function MobileAppsClient({
                     Delete
                   </button>
                 </div>
+                <ClientInstalls app={a} contacts={contacts} copy={copy} copied={copied} />
               </div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Phase 5B: per client installs. Each client gets their own app link with a
+// personalised greeting and their own home screen install.
+function ClientInstalls({
+  app,
+  contacts,
+  copy,
+  copied,
+}: {
+  app: App;
+  contacts: Contact[];
+  copy: (slug: string) => void;
+  copied: string;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [contactId, setContactId] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [clientEmail, setClientEmail] = useState("");
+  const [greeting, setGreeting] = useState("");
+  const [send, setSend] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    setMsg("");
+    const res = await fetch(`/api/mobile-apps/${app.id}/clients`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contactId, clientName, clientEmail, greeting, send }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return setError(json.error || "Could not add the client");
+    setMsg(json.mail ? `Client added. Link email: ${json.mail}.` : "Client added.");
+    setContactId("");
+    setClientName("");
+    setClientEmail("");
+    setGreeting("");
+    router.refresh();
+  }
+
+  async function removeClient(id: string) {
+    if (!confirm("Remove this client's app link? Their installed icon stops opening.")) return;
+    await fetch(`/api/mobile-apps/${app.id}/clients/${id}`, { method: "DELETE" });
+    router.refresh();
+  }
+
+  return (
+    <div className="mt-3 border-t border-neutral-100 pt-2">
+      <button className="text-xs text-neutral-500 underline" onClick={() => setOpen((v) => !v)}>
+        {app.clients.length} client app{app.clients.length === 1 ? "" : "s"} {open ? "▴" : "▾"}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          {app.clients.map((c) => (
+            <div key={c.id} className="text-xs flex items-center gap-2">
+              <span className="font-medium truncate">{c.clientName}</span>
+              <span className="text-neutral-400 truncate">
+                {c.lastOpenedAt ? `opened ${new Date(c.lastOpenedAt).toLocaleDateString()}` : "not opened yet"}
+              </span>
+              <span className="flex-1" />
+              <a href={`/app/${c.slug}`} target="_blank" className="underline text-neutral-600">
+                Open
+              </a>
+              <button className="underline text-neutral-600" onClick={() => copy(c.slug)}>
+                {copied === c.slug ? "Copied ✓" : "Copy"}
+              </button>
+              <button className="underline text-red-500" onClick={() => removeClient(c.id)}>
+                Remove
+              </button>
+            </div>
+          ))}
+          <form onSubmit={add} className="space-y-2 bg-neutral-50 rounded-md p-2">
+            <select
+              className="input !py-1 text-xs"
+              value={contactId}
+              onChange={(e) => {
+                setContactId(e.target.value);
+                const c = contacts.find((x) => x.id === e.target.value);
+                if (c) {
+                  setClientName(c.name);
+                  setClientEmail(c.email);
+                }
+              }}
+            >
+              <option value="">Pick a client from your contacts, or type below</option>
+              {contacts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.email ? ` (${c.email})` : ""}
+                </option>
+              ))}
+            </select>
+            <div className="grid grid-cols-2 gap-2">
+              <input className="input !py-1 text-xs" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Client name" />
+              <input className="input !py-1 text-xs" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} placeholder="Client email" />
+            </div>
+            <input
+              className="input !py-1 text-xs"
+              value={greeting}
+              onChange={(e) => setGreeting(e.target.value)}
+              placeholder="Greeting, e.g. Hi {name}, thank you for a wonderful day!"
+            />
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-1.5 text-xs text-neutral-600">
+                <input type="checkbox" checked={send} onChange={(e) => setSend(e.target.checked)} disabled={!clientEmail} />
+                Email the app link
+              </label>
+              <span className="flex-1" />
+              <button className="btn-secondary !py-1 text-xs">Add client</button>
+            </div>
+            {msg && <p className="text-xs text-emerald-600">{msg}</p>}
+            {error && <p className="text-xs text-red-600">{error}</p>}
+          </form>
         </div>
       )}
     </div>

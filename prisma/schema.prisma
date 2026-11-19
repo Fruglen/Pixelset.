@@ -16,6 +16,34 @@ model User {
   watermarkText String       @default("")
   // Phase 5A — email sending: overrides env MAIL_FROM when set
   mailFrom      String       @default("")
+  // Phase 5B — account level gallery settings
+  timezone          String  @default("America/Chicago") // IANA zone used for 11:59pm expiry
+  locale            String  @default("auto") // dashboard language: auto | en | es | pt
+  galleryGaId       String  @default("") // Google Analytics measurement id for galleries
+  galleryHomeSlug   String? @unique // public gallery homepage /gh/[slug]
+  galleryHomeTitle  String  @default("")
+  watermarkMode     String  @default("text") // text | image
+  watermarkImageUrl String  @default("")
+  watermarkPosition String  @default("center") // center | bottom-right | bottom-left | top-right | top-left | tiled
+  watermarkOpacity  Int     @default(40) // percent
+  watermarkScale    Int     @default(30) // percent of image width
+  watermarkSizes    String  @default("web2048,web1024,web640") // download sizes that carry the watermark
+  apiToken          String? @unique // Lightroom plugin / API uploads
+  onboardedAt       DateTime?
+  plan              String  @default("SUITE_ULTIMATE") // simulated plan tier, no billing connected
+  ipAllowlist       String  @default("[]") // JSON array of IPv4/CIDR entries (Volume plan security); ip-guard.ts still reads plan JSON tonight
+  previewSize       Int     @default(2048) // Phase 5B platform: longest edge of generated gallery previews
+  previewQuality    Int     @default(85) // Phase 5B platform: JPEG quality of generated previews (60 to 95)
+  // Phase 5B platform: one brand source used by website, gallery, store, booking, contracts, invoices
+  brandLogoUrl      String  @default("")
+  brandColor        String  @default("") // primary hex, empty = each product's own palette
+  brandAccent       String  @default("")
+  brandFont         String  @default("") // heading font theme id, empty = product default
+  galleryDomain     String  @default("") // custom domain for the gallery homepage
+  galleryDomainStatus String @default("NONE") // NONE | PENDING | VERIFIED | FAILED
+  galleryDomainNote String  @default("")
+  galleryDefaultPresetId String @default("") // preset applied to new collections
+  setupDismissed    String  @default("") // csv of dismissed onboarding checklists: studio,website
   createdAt     DateTime     @default(now())
   sessions      Session[]
   collections   Collection[]
@@ -46,6 +74,16 @@ model User {
   automations    Automation[]
   emailTemplates EmailTemplate[]
   teamMembers    TeamMember[]
+
+  // Phase 5B
+  galleryEmailTemplates GalleryEmailTemplate[]
+  campaigns             Campaign[]
+  notifications         Notification[]
+  bookingCoupons BookingCoupon[]
+  albumDesigns AlbumDesign[]
+  subscriptions Subscription[]
+  courses Course[]
+
 }
 
 model Session {
@@ -62,6 +100,9 @@ model Folder {
   userId      String
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   name        String
+  // Phase 5B — one public share link for the whole folder
+  slug        String?      @unique
+  isPublic    Boolean      @default(false)
   createdAt   DateTime     @default(now())
   collections Collection[]
 }
@@ -112,6 +153,8 @@ model Collection {
   // Expiry
   expiresAt      DateTime?
   expiryReminder Boolean   @default(false)
+  expiryReminderDays   Int       @default(3) // Phase 5B: days before expiry the reminder goes out
+  expiryReminderSentAt DateTime? // Phase 5B: when the reminder email was sent for the current expiry date
 
   // Phase 4 — Store + slideshow + mobile app
   priceSheetId      String?
@@ -120,9 +163,29 @@ model Collection {
   slideshowEnabled  Boolean     @default(true)
   slideshowMusicUrl String      @default("")
 
+  // Phase 5B — Client Gallery extras
+  starred            Boolean @default(false)
+  coverImageUrl      String  @default("") // separately uploaded cover, not in the grid
+  coverAnimation     Boolean @default(true)
+  navStyle           String  @default("text") // text | icons | iconsText
+  seoIndexing        Boolean @default(false) // allow search engines to index
+  showOnHomepage     Boolean @default(false)
+  clientOnlyDownloads Boolean @default(false) // require registered email + PIN
+  emailedDownloadAll Boolean @default(false) // deliver Download All by emailed link
+  zipPartSize        Int     @default(200) // max files per ZIP part
+  desktopOnlyZip     Boolean @default(true)
+  favoritesEnabled   Boolean @default(true)
+  language           String  @default("en")
+  socialSharing      Boolean @default(false)
+  campaignOptIn      Boolean @default(false) // show marketing opt in inside the gallery
+  galleryAssist      Boolean @default(true)
+  publishedAt        DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  downloadJobs  DownloadJob[]
+  optIns        CampaignOptIn[]
   sets          PhotoSet[]
   photos        Photo[]
   favoriteLists FavoriteList[]
@@ -134,6 +197,7 @@ model Collection {
   downloadLogs  DownloadLog[]
   orders        Order[]
   mobileApp     MobileApp?
+  accessGroups  AccessGroup[]
 }
 
 model PhotoSet {
@@ -170,6 +234,9 @@ model Photo {
   durationSec  Float? // videos, when readable via ffprobe
   posterUrl    String     @default("") // video poster / RAW JPEG preview when generated
   fileSize     Int? // bytes, stored for videos + RAW originals
+  // Phase 5B
+  starred      Boolean    @default(false)
+  watermarkMode String    @default("inherit") // inherit | on | off (bulk watermark action)
   createdAt    DateTime   @default(now())
   favorites    Favorite[]
   comments     Comment[]
@@ -183,6 +250,7 @@ model FavoriteList {
   clientName     String     @default("")
   name           String
   selectionLimit Int?
+  submittedAt    DateTime? // Phase 5B — client marked the list finished
   createdAt      DateTime   @default(now())
   favorites      Favorite[]
 }
@@ -229,7 +297,80 @@ model Invite {
   collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
   email        String
   message      String     @default("")
+  // Phase 5B — scheduled sending + templates
+  subject      String     @default("")
+  recipientName String    @default("")
+  sendAt       DateTime?
+  sentAt       DateTime?
+  status       String     @default("SENT") // SCHEDULED | SENT | FAILED
+  deliveryNote String     @default("")
   createdAt    DateTime   @default(now())
+}
+
+// Phase 5B — Download All delivered by an emailed, expiring link
+model DownloadJob {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  token        String     @unique
+  email        String
+  size         String
+  status       String     @default("PENDING") // PENDING | READY | FAILED
+  parts        String     @default("[]") // JSON [{ name, path, files, bytes }]
+  photoIds     String     @default("") // csv, empty = whole gallery
+  error        String     @default("")
+  expiresAt    DateTime
+  createdAt    DateTime   @default(now())
+}
+
+// Phase 5B — marketing opt ins captured inside galleries
+model CampaignOptIn {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  email        String
+  name         String     @default("")
+  createdAt    DateTime   @default(now())
+
+  @@unique([collectionId, email])
+}
+
+// Phase 5B — reusable gallery email (invite) templates
+model GalleryEmailTemplate {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  subject   String
+  body      String
+  createdAt DateTime @default(now())
+}
+
+// Phase 5B — email campaigns (print sales, mini session announcements, review requests)
+model Campaign {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  kind       String   @default("PRINT_SALE") // PRINT_SALE | MINI_SESSION | REVIEW_REQUEST | CUSTOM
+  subject    String
+  body       String
+  audience   String   @default("ALL_CONTACTS") // ALL_CONTACTS | OPT_INS | GALLERY_CLIENTS | TAG:<tag>
+  status     String   @default("DRAFT") // DRAFT | SENT
+  sentAt     DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  sends      CampaignSend[]
+}
+
+model CampaignSend {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  email      String
+  status     String   @default("LOGGED") // DELIVERED | LOGGED | FAILED
+  detail     String   @default("")
+  createdAt  DateTime @default(now())
 }
 
 model EmailRegistration {
@@ -284,6 +425,18 @@ model Website {
   socialInstagram String   @default("")
   socialFacebook  String   @default("")
   socialPinterest String   @default("")
+  // Phase 5B website: draft/publish, design controls, Instagram, domains
+  publishedSnapshot String    @default("") // JSON snapshot of the live (published) site
+  publishedAt       DateTime?
+  spacing           String    @default("regular") // compact | regular | airy
+  buttonShape       String    @default("square") // square | rounded | pill
+  arrowStyle        String    @default("none") // none | arrow | chevron | line
+  instagramToken    String    @default("") // Instagram Graph API long-lived token (account setting)
+  domainStatus      String    @default("NONE") // NONE | PENDING | VERIFIED | FAILED
+  domainToken       String    @default("")
+  domainCheckedAt   DateTime?
+  domainNote        String    @default("")
+  templateChosen    Boolean   @default(true) // Phase 5B platform: false while the sign up starter template has not been confirmed
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -291,6 +444,17 @@ model Website {
   posts     BlogPost[]
   redirects SiteRedirect[]
   messages  SiteMessage[]
+  gaId String @default("")
+  fbPixelId String @default("")
+  cookieBannerEnabled Boolean @default(false)
+  cookieBannerText String @default("")
+  animationStyle String @default("none")
+  animationSpeed String @default("normal")
+  sitePassword String @default("")
+  customFonts String @default("[]")
+  fontDisplay String @default("")
+  fontBody String @default("")
+
 }
 
 model SitePage {
@@ -310,6 +474,8 @@ model SitePage {
   updatedAt      DateTime @updatedAt
 
   @@unique([websiteId, slug])
+  password String @default("")
+
 }
 
 model BlogPost {
@@ -400,9 +566,19 @@ model StudioProfile {
   showManual                Boolean @default(true)
 
   googleCalendarSync Boolean @default(false)
+  feedbackQuestionnaireId String @default("") // Phase 5B: auto-sent when a project reaches Delivered
+  feedbackDelayDays       Int    @default(0)
+  inboundToken            String @default("") // Phase 5B: inbound email routing key (set lazily)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  googleEmail String @default("")
+  googleRefreshToken String @default("")
+  googleCalendarId String @default("primary")
+  googleBusyJson String @default("")
+  googleSyncAt DateTime?
+  payoutSchedule String @default("WEEKLY")
+
 }
 
 model SessionType {
@@ -415,9 +591,16 @@ model SessionType {
   coverUrl           String @default("")
   durationMin        Int    @default(60)
   bufferMin          Int    @default(0)
+  bufferBeforeMin    Int    @default(0) // Phase 5B
+  // Phase 5B availability rules JSON { hours: {"0".."6": [{start,end}]}, overrides: [{date, closed, start, end}], minNoticeHours, maxPerDay, intervalMin, windowDays }
+  availability       String @default("")
+  remindersEnabled   Boolean @default(true)
+  reminderHoursBefore Int   @default(24)
+  meetingLink        String @default("") // Phase 5B: fixed link for VIDEO types; empty = auto generated per booking
   priceCents         Int    @default(0)
   taxRate            Float  @default(0)
   // IN_PERSON | ZOOM
+  // Phase 5B adds VIDEO | PHONE
   locationType       String @default("IN_PERSON")
   location           String @default("")
   cancellationPolicy String @default("")
@@ -426,6 +609,7 @@ model SessionType {
   // NONE | PERCENT | FIXED | FULL
   retainerType  String @default("NONE")
   retainerValue Int    @default(0) // percent (0-100) when PERCENT, cents when FIXED
+  requiresApproval Boolean @default(false) // Phase 5B platform: manual approval (Studio Manager Pro)
 
   contractTemplateId String?
   contractTemplate   ContractTemplate? @relation(fields: [contractTemplateId], references: [id], onDelete: SetNull)
@@ -493,6 +677,9 @@ model Contact {
   address String @default("")
   company String @default("")
   tags    String @default("") // csv
+  // Phase 5B: lead vs client state, where the contact came from
+  state   String @default("LEAD") // LEAD | CLIENT
+  source  String @default("") // MANUAL | GALLERY | WEBSITE_FORM | LEAD_FORM | BOOKING | IMPORT
 
   createdAt DateTime @default(now())
 
@@ -539,6 +726,12 @@ model Booking {
   notes         String @default("")
   // BOOKING_SITE | MINI | MANUAL
   source        String @default("MANUAL")
+  // Phase 5B
+  clientToken    String?   @unique // Phase 5B: client completion link for Awaiting Client bookings
+  meetingLink    String    @default("")
+  callPhone      String    @default("")
+  reminderSentAt DateTime?
+  approvalState  String    @default("") // Phase 5B platform: REQUESTED | APPROVED | DECLINED
 
   createdAt DateTime @default(now())
 
@@ -546,6 +739,10 @@ model Booking {
   response QuestionnaireResponse?
   invoices Invoice[]
   project  Project?
+  couponCode String @default("")
+  discountCents Int @default(0)
+  googleEventId String @default("")
+
 }
 
 model ContractTemplate {
@@ -554,6 +751,9 @@ model ContractTemplate {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   name   String
   body   String @default("") // text with {{smart_fields}}
+  brandLogoUrl   String @default("") // Phase 5B branding
+  brandColor     String @default("")
+  headerImageUrl String @default("")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -576,6 +776,11 @@ model Contract {
 
   title           String
   body            String    @default("") // rendered body (smart fields resolved when created/sent)
+  brandLogoUrl    String    @default("") // Phase 5B branding
+  brandColor      String    @default("")
+  headerImageUrl  String    @default("")
+  signatureImage       String @default("") // Phase 5B drawn signature (PNG data URL)
+  secondSignatureImage String @default("")
   // DRAFT | SENT | SIGNED  (expired + scheduled are derived)
   status          String    @default("DRAFT")
   token           String    @unique @default(cuid())
@@ -606,6 +811,7 @@ model Questionnaire {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   name   String
   fields String @default("[]") // JSON [{ id, type: text|textarea|choice|date, label, options, required }]
+  kind   String @default("STANDARD") // Phase 5B: STANDARD | FEEDBACK
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -625,6 +831,7 @@ model QuestionnaireResponse {
   respondentName  String        @default("")
   respondentEmail String        @default("")
   answers         String        @default("{}") // JSON { fieldId: value }
+  testimonial     Boolean       @default(false) // Phase 5B: client allowed publishing as a testimonial
   createdAt       DateTime      @default(now())
 }
 
@@ -658,11 +865,17 @@ model Invoice {
   token  String    @unique @default(cuid())
   sentAt DateTime?
   paidAt DateTime?
+  // Phase 5B
+  template         String @default("CLASSIC") // CLASSIC | MODERN | MINIMAL
+  reminderSchedule String @default("[-3,0,3]") // days relative to due date
+  remindersSent    String @default("[]")
 
   installments InvoiceInstallment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  featuredPhotoUrl String @default("")
+
 }
 
 model InvoiceInstallment {
@@ -701,6 +914,7 @@ model Quote {
   sentAt     DateTime?
   acceptedAt DateTime?
   declinedAt DateTime?
+  selection  String    @default("") // Phase 5B: JSON array of chosen item indexes
 
   invoice Invoice?
 
@@ -767,8 +981,19 @@ model StoreProfile {
   labEmail    String  @default("")
   labEndpoint String  @default("")
 
+  // Phase 5B store: status, payment methods (mocked), tax mode, home regions
+  storeOpen           Boolean @default(true)
+  closedMessage       String  @default("")
+  cardPayments        Boolean @default(true)
+  offlinePayments     Boolean @default(false)
+  offlineInstructions String  @default("")
+  taxMode             String  @default("MANUAL") // MANUAL | AUTO
+  taxNexus            String  @default("") // csv of COUNTRY-REGION codes to collect in; empty = everywhere
+  taxShipping         Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  whiteLabelPackaging Boolean @default(false)
+
 }
 
 model PriceSheet {
@@ -799,11 +1024,16 @@ model Product {
 
   selfFulfilled Boolean @default(true) // false = lab-fulfilled (mock WHCC routing)
   shippingCents Int     @default(0) // flat shipping for this product (physical only)
+  frameOptions  String  @default("[]") // Phase 5B: JSON [{name, priceCents}] frame choices
   order         Int     @default(0)
   active        Boolean @default(true)
 
   variants   ProductVariant[]
   orderItems OrderItem[]
+  pricingMode String @default("FIXED")
+  markupPct Float @default(0)
+  packageItems String @default("")
+
 }
 
 model ProductVariant {
@@ -813,6 +1043,8 @@ model ProductVariant {
   name       String // e.g. 4×6, 8×10, 16×20 canvas, High-res file
   priceCents Int     @default(0)
   order      Int     @default(0)
+  labCostCents Int @default(0)
+
 }
 
 model Coupon {
@@ -833,6 +1065,9 @@ model Coupon {
   createdAt DateTime @default(now())
 
   @@unique([userId, code])
+  showBanner Boolean @default(false)
+  bannerText String @default("")
+
 }
 
 model GiftCard {
@@ -880,12 +1115,23 @@ model Order {
   // SELF | LAB | MIXED | DIGITAL
   fulfillment   String @default("SELF")
   notes         String @default("")
+  // Phase 5B store
+  paymentStatus   String @default("PAID") // PAID | AWAITING_PAYMENT (offline) | REFUNDED
+  shippingMethod  String @default("")
+  shippingCountry String @default("")
+  shippingRegion  String @default("")
+  taxLabel        String @default("")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   items     OrderItem[]
   labOrders LabOrder[]
+  labCostCents Int @default(0)
+  feeCents Int @default(0)
+  commissionCents Int @default(0)
+  payoutCents Int @default(0)
+
 }
 
 // Phase 5A — lab fulfillment pipeline: one complete lab order payload per
@@ -902,6 +1148,9 @@ model LabOrder {
   isReprint Boolean @default(false)
   sentAt    DateTime?
   response  String  @default("") // lab endpoint response or error, verbatim
+  trackingNumber String @default("") // Phase 5B
+  carrier        String @default("")
+  labReference   String @default("") // the lab's own order id when it returns one
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -924,6 +1173,7 @@ model OrderItem {
   qty         Int    @default(1)
   unitCents   Int    @default(0)
 
+  frameName   String @default("") // Phase 5B: chosen frame option (included in unitCents)
   // digital fulfillment: expiring 7-day download link
   downloadToken   String?   @unique
   downloadExpires DateTime?
@@ -964,6 +1214,7 @@ model Automation {
   trigger String
   conditions String @default("[]") // JSON [{ field, op, value }]
   actions    String @default("[]") // JSON [{ type, templateKey? }]
+  steps      String @default("[]") // Phase 5B: JSON [{ delayDays, actions }] follow up steps after the first
   active     Boolean @default(true)
 
   createdAt DateTime @default(now())
@@ -978,6 +1229,7 @@ model AutomationRun {
   automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
 
   targetKey  String // dedup key, e.g. invoice:<id>
+  step       Int    @default(0) // Phase 5B: sequence step index (0 = the first actions)
   targetLabel String @default("")
   // OK | SKIPPED | ERROR
   status String @default("OK")
@@ -1018,4 +1270,312 @@ model EmailTemplate {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, key])
+}
+
+// Phase 5B — dashboard notifications (booking, quote accepted, invoice paid, contract signed, questionnaire completed, list submitted...)
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String
+  title     String
+  body      String   @default("")
+  href      String   @default("")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// Phase 5B — per viewer access groups (vendors, second shooters, family) with their own download rights per set
+model AccessGroup {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  name         String
+  code         String // access code the viewer enters
+  canDownload  Boolean    @default(true)
+  downloadSizes String    @default("web2048") // csv subset the group may download
+  setIds       String     @default("") // csv of sets the group may see and download; empty = all non exclusive sets
+  createdAt    DateTime   @default(now())
+}
+
+// ==== Phase 5B studio ====
+model QuestionnaireRequest {
+  id              String    @id @default(cuid())
+  userId          String
+  questionnaireId String
+  contactId       String?
+  projectId       String?
+  email           String
+  name            String    @default("")
+  token           String    @unique @default(cuid())
+  sentAt          DateTime  @default(now())
+  completedAt     DateTime?
+  responseId      String    @default("")
+  reason          String    @default("MANUAL") // MANUAL | DELIVERY
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model LeadForm {
+  id            String   @id @default(cuid())
+  userId        String
+  name          String
+  token         String   @unique @default(cuid())
+  heading       String   @default("")
+  intro         String   @default("")
+  fields        String   @default("[]") // same schema as questionnaires
+  thanks        String   @default("Thanks, we'll be in touch shortly.")
+  createProject Boolean  @default(true)
+  active        Boolean  @default(true)
+  submissions   Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model PaymentLink {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  description String   @default("")
+  amountCents Int      @default(0) // 0 = client enters the amount
+  token       String   @unique @default(cuid())
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+model StudioPayment {
+  id          String   @id @default(cuid())
+  userId      String
+  // INVOICE | BOOKING | PAYMENT_LINK
+  source      String
+  sourceId    String   @default("")
+  label       String   @default("")
+  payerName   String   @default("")
+  payerEmail  String   @default("")
+  amountCents Int
+  tipCents    Int      @default(0)
+  method      String   @default("card")
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  status String @default("SUCCEEDED")
+  feeCents Int @default(0)
+  refundedCents Int @default(0)
+  processor String @default("")
+  processorRef String @default("")
+
+}
+
+// ==== Phase 5B website ====
+// Media uploaded inside the website block editor (images, GIF, PNG, video).
+model SiteMedia {
+  id        String   @id @default(cuid())
+  userId    String
+  filename  String
+  url       String
+  mime      String
+  kind      String   @default("IMAGE") // IMAGE | GIF | VIDEO
+  size      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ==== Phase 5B store ====
+// Named shipping methods with their own rates, usable on self fulfilled and lab sheets.
+model ShippingMethod {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  speed        String   @default("") // e.g. 3-5 business days
+  appliesTo    String   @default("ALL") // SELF | LAB | ALL
+  baseCents    Int      @default(0)
+  perItemCents Int      @default(0) // added per physical unit after the first
+  freeOverCents Int     @default(0) // 0 = never free
+  active       Boolean  @default(true)
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+}
+
+// Manual tax rates by region (override the automatic table).
+model TaxRate {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  country   String   @default("US")
+  region    String   @default("") // state or province code, empty = whole country
+  ratePct   Float    @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// Self fulfilled order revenue paid to the photographer directly (mocked).
+model StorePayout {
+  id          String    @id @default(cuid())
+  userId      String
+  orderId     String    @unique
+  amountCents Int
+  method      String    @default("card")
+  status      String    @default("PAID") // PAID (mock card) | AWAITING_PAYMENT (offline) | CANCELLED
+  paidAt      DateTime?
+  note        String    @default("")
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// Status timeline for a lab order (every change, from us or the lab webhook).
+model LabOrderEvent {
+  id         String   @id @default(cuid())
+  labOrderId String
+  status     String
+  note       String   @default("")
+  source     String   @default("PHOTOGRAPHER") // SYSTEM | PHOTOGRAPHER | LAB
+  createdAt  DateTime @default(now())
+
+  @@index([labOrderId])
+}
+
+// A per client install of a collection's mobile app (own link, greeting, manifest).
+model MobileAppClient {
+  id          String   @id @default(cuid())
+  userId      String
+  appId       String
+  contactId   String   @default("")
+  clientName  String
+  clientEmail String   @default("")
+  greeting    String   @default("")
+  slug        String   @unique
+  lastOpenedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([appId])
+}
+
+// ==== Phase 5B platform ====
+// Accounting and CRM sync log: which local records were pushed to QuickBooks or HubSpot.
+model AccountingSync {
+  id        String   @id @default(cuid())
+  userId    String
+  provider  String // QUICKBOOKS | HUBSPOT
+  entity    String // CUSTOMER | INVOICE | CONTACT
+  localId   String
+  remoteId  String   @default("")
+  status    String   @default("OK") // OK | FAILED
+  detail    String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, entity, localId])
+  @@index([userId])
+}
+
+model BookingCoupon {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code          String
+  type          String    @default("PERCENT")
+  value         Int       @default(0)
+  minSpendCents Int       @default(0)
+  active        Boolean   @default(true)
+  useLimit      Int?
+  useCount      Int       @default(0)
+  expiresAt     DateTime?
+  sessionTypeId String    @default("")
+  createdAt     DateTime  @default(now())
+  @@unique([userId, code])
+  @@index([userId])
+}
+
+model AlbumDesign {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token       String   @unique @default(cuid())
+  productId   String   @default("")
+  orderId     String   @default("")
+  clientName  String   @default("")
+  clientEmail String   @default("")
+  title       String   @default("")
+  coverJson   String   @default("{}")
+  pagesJson   String   @default("[]")
+  status      String   @default("DRAFT")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@index([userId])
+}
+
+// Night build final pass: proper homes logged in NIGHT-SCHEMA-NEEDS.md
+// (Pricing + Extras lane). billing.ts state still rides User.plan JSON
+// tonight; these tables are the migration target.
+model Subscription {
+  id                   String    @id @default(cuid())
+  userId               String
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status               String    @default("ACTIVE") // ACTIVE | CANCELLED | PAST_DUE | NONE
+  cycle                String    @default("MONTHLY") // MONTHLY | YEARLY
+  periodStart          DateTime?
+  periodEnd            DateTime?
+  autoRenew            Boolean   @default(true)
+  cancelAtPeriodEnd    Boolean   @default(false)
+  processor            String    @default("") // "" | STRIPE (simulated while billing parked)
+  stripeCustomerId     String    @default("")
+  stripeSubscriptionId String    @default("")
+  tiers                String    @default("{}") // JSON per-product tier state
+  addOns               String    @default("[]") // JSON add-on list
+  volume               String    @default("") // volume plan id, "" = none
+  history              String    @default("[]") // JSON billing history events
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  @@index([userId])
+}
+
+model Course {
+  id          String         @id @default(cuid())
+  userId      String
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String         @default("")
+  description String         @default("")
+  coverUrl    String         @default("")
+  priceCents  Int            @default(0)
+  published   Boolean        @default(false)
+  accessCode  String         @default("")
+  lessons     CourseLesson[]
+  accesses    CourseAccess[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  @@index([userId])
+}
+
+model CourseLesson {
+  id        String   @id @default(cuid())
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title     String   @default("")
+  body      String   @default("")
+  videoUrl  String   @default("")
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  @@index([courseId])
+}
+
+model CourseAccess {
+  id        String   @id @default(cuid())
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  email     String   @default("")
+  grantedAt DateTime @default(now())
+  @@index([courseId])
+  @@unique([courseId, email])
 }

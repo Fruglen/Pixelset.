@@ -23,6 +23,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
   if (typeof body.notes === "string") data.notes = body.notes;
   await db.order.update({ where: { id: order.id }, data });
+  // Phase 5B: keep the payout record in step with cancellations
+  if (data.status === "CANCELLED") {
+    await db.storePayout.updateMany({ where: { orderId: order.id }, data: { status: "CANCELLED" } });
+  } else if (order.status === "CANCELLED" && data.status) {
+    await db.storePayout.updateMany({
+      where: { orderId: order.id },
+      data: { status: order.paymentStatus === "AWAITING_PAYMENT" ? "AWAITING_PAYMENT" : "PAID" },
+    });
+  }
   return NextResponse.json({ ok: true });
 }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createSession, verifyPassword } from "@/lib/auth";
+import { clientIp, loginIpAllowed } from "@/lib/ip-guard";
 
 export async function POST(req: NextRequest) {
   const { email, password } = await req.json();
@@ -10,6 +11,14 @@ export async function POST(req: NextRequest) {
   const user = await db.user.findUnique({ where: { email: email.toLowerCase().trim() } });
   if (!user || !verifyPassword(password, user.passwordHash)) {
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
+  }
+  // Night build (Pricing lane): Studio Manager Volume plan IP whitelisting.
+  // Enforced only while a Volume plan is active and a list is saved.
+  if (!(await loginIpAllowed(user.id, clientIp(req.headers)))) {
+    return NextResponse.json(
+      { error: "This account only allows sign-in from approved IP addresses. Ask the account owner to add this address in Settings > Security." },
+      { status: 403 },
+    );
   }
   await createSession(user.id);
   return NextResponse.json({ ok: true });

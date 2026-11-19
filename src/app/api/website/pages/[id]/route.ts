@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { slugify } from "@/lib/utils";
 import { parseBlocks } from "@/lib/blocks";
+import { WEBSITE_LIMITS, planFor, tierLabel } from "@/lib/plans";
 
 async function ownPage(id: string) {
   const user = await getCurrentUser();
@@ -23,6 +24,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   if (typeof body.title === "string" && body.title.trim()) data.title = body.title.trim();
   if (typeof body.visible === "boolean") data.visible = body.visible;
+  if (typeof body.password === "string") data.password = body.password.trim().slice(0, 100);
   if (typeof body.seoTitle === "string") data.seoTitle = body.seoTitle.trim();
   if (typeof body.seoDescription === "string") data.seoDescription = body.seoDescription.trim();
 
@@ -36,12 +38,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
   }
 
-  if (typeof body.blocks === "string") {
+  if (typeof body.blocks === "string" || Array.isArray(body.blocks)) {
     // validate it parses into a block array before storing
-    const blocks = parseBlocks(body.blocks);
-    data.blocks = JSON.stringify(blocks);
-  } else if (Array.isArray(body.blocks)) {
-    const blocks = parseBlocks(JSON.stringify(body.blocks));
+    const blocks = parseBlocks(typeof body.blocks === "string" ? body.blocks : JSON.stringify(body.blocks));
+    // Night build (Pricing lane): custom embed code is a Website Pro unlock.
+    if (blocks.some((b) => b.type === "embed")) {
+      const plan = await planFor(website.userId);
+      if (!WEBSITE_LIMITS[plan.website].customCode) {
+        return NextResponse.json(
+          { error: `Custom embed code needs the Website Pro plan (your plan is ${tierLabel("website", plan.website)}). Upgrade in Settings > Plan.` },
+          { status: 403 },
+        );
+      }
+    }
     data.blocks = JSON.stringify(blocks);
   }
 

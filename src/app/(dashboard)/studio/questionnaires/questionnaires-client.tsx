@@ -13,6 +13,7 @@ export function QuestionnairesClient({
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [kind, setKind] = useState("STANDARD");
   const [error, setError] = useState("");
 
   async function create() {
@@ -21,7 +22,7 @@ export function QuestionnairesClient({
     const res = await fetch("/api/studio/questionnaires", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, kind, useAfterDelivery: kind === "FEEDBACK" }),
     });
     const data = await res.json().catch(() => ({}));
     setBusy(false);
@@ -41,7 +42,7 @@ export function QuestionnairesClient({
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <p className="text-sm text-neutral-500">
-          Attach a questionnaire to a session type and clients answer it while booking.
+          Attach a questionnaire to a session type and clients answer it while booking, or send it to a client as its own link.
         </p>
         <button className="btn-primary" onClick={() => setShowCreate(true)}>
           + Questionnaire
@@ -81,6 +82,11 @@ export function QuestionnairesClient({
             {error ? <p className="text-sm text-red-600 mb-3">{error}</p> : null}
             <label className="label">Name</label>
             <input className="input" autoFocus placeholder="Wedding day details" value={name} onChange={(e) => setName(e.target.value)} />
+            <label className="label mt-3">Type</label>
+            <select className="input" value={kind} onChange={(e) => setKind(e.target.value)}>
+              <option value="STANDARD">Standard questionnaire</option>
+              <option value="FEEDBACK">Post delivery feedback and testimonial (sent automatically after delivery)</option>
+            </select>
             <div className="flex justify-end gap-2 mt-4">
               <button className="btn-secondary" onClick={() => setShowCreate(false)}>
                 Cancel

@@ -2,6 +2,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getStudioProfile } from "@/lib/studio";
 import { StudioTabs } from "./tabs";
+import { runStudioReminders } from "@/lib/studio-flow";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,9 @@ export default async function StudioLayout({ children }: { children: React.React
   const user = await getCurrentUser();
   if (!user) return <>{children}</>;
   const profile = await getStudioProfile(user.id);
+  // Phase 5B: time based sends (session reminders, invoice reminder schedules) run
+  // lazily on every Studio page load, and from /api/cron/studio when a scheduler calls it.
+  await runStudioReminders(user.id).catch(() => null);
   const website = await db.website.findUnique({ where: { userId: user.id } });
   const unreadStudio = await db.studioMessage.count({ where: { userId: user.id, read: false } });
   const unreadSite = website

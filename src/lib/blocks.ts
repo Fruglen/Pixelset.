@@ -2,7 +2,7 @@
 // Each block = { id, type, props }. Pages store a JSON array of blocks.
 // The registry drives both the generic editor forms and the public renderers.
 
-export type FieldKind = "text" | "textarea" | "number" | "toggle" | "select" | "image" | "items";
+export type FieldKind = "text" | "textarea" | "number" | "toggle" | "select" | "image" | "video" | "items" | "canvas" | "sessionTypes";
 
 export interface FieldDef {
   key: string;
@@ -39,6 +39,7 @@ export const BLOCK_CATEGORIES = [
   "Forms",
   "Dynamic",
   "Layout",
+  "Flex canvas",
 ] as const;
 
 const align = [
@@ -196,9 +197,14 @@ export const BLOCK_DEFS: BlockDef[] = [
     type: "video",
     name: "Video",
     category: "Images",
-    desc: "YouTube or Vimeo embed",
-    fields: [txt("url", "YouTube / Vimeo URL"), txt("caption", "Caption"), sel("width", "Width", widths)],
-    defaults: { url: "", caption: "", width: "regular" },
+    desc: "YouTube or Vimeo embed, or an uploaded MP4 / WebM video",
+    fields: [
+      { key: "url", label: "Video (YouTube or Vimeo link, or upload an MP4 / WebM)", kind: "video" },
+      img("poster", "Poster image (uploaded videos)"),
+      txt("caption", "Caption"), sel("width", "Width", widths),
+      tog("autoplay", "Autoplay muted and loop (uploaded videos)"),
+    ],
+    defaults: { url: "", poster: "", caption: "", width: "regular", autoplay: false },
   },
   // ------------------------------------------------------------- Galleries
   {
@@ -395,12 +401,14 @@ export const BLOCK_DEFS: BlockDef[] = [
     type: "instagram",
     name: "Instagram strip",
     category: "Social proof",
-    desc: "Instagram-style image strip with handle",
+    desc: "Your latest Instagram posts, live when your account is connected",
     fields: [
+      sel("source", "Source", [{ value: "live", label: "Live feed when connected (manual images as fallback)" }, { value: "manual", label: "Manual images only" }]),
+      { key: "count", label: "Posts to show", kind: "number" },
       txt("handle", "Handle (e.g. @lightandshadow)"), txt("url", "Profile link"),
-      { key: "images", label: "Images", kind: "items", itemLabel: "Image", fields: [img("url", "Image"), txt("alt", "Alt text")] },
+      { key: "images", label: "Fallback images", kind: "items", itemLabel: "Image", fields: [img("url", "Image"), txt("alt", "Alt text")] },
     ],
-    defaults: { handle: "", url: "", images: [] },
+    defaults: { source: "live", count: 6, handle: "", url: "", images: [] },
   },
   // ------------------------------------------------------------- Forms
   {
@@ -428,6 +436,19 @@ export const BLOCK_DEFS: BlockDef[] = [
     defaults: { heading: "Book a session", intro: "", sessionTypes: "Portrait session\nWedding\nBrand shoot", buttonLabel: "Request booking", success: "Request received, we'll confirm your date shortly." },
   },
   {
+    // Phase 5B (studio): live mini session calendar from the booking engine
+    type: "miniSession",
+    name: "Mini session calendar",
+    category: "Forms",
+    desc: "Live open spots for your published mini sessions, each spot books directly",
+    fields: [
+      txt("heading", "Heading"), area("intro", "Intro text"),
+      { key: "miniName", label: "Only this mini session (name, leave empty for all)", kind: "text" },
+      tog("showDetails", "Show mini session details"),
+    ],
+    defaults: { heading: "Mini sessions", intro: "Pick an open spot to book.", miniName: "", showDetails: true },
+  },
+  {
     type: "newsletter",
     name: "Newsletter signup",
     category: "Forms",
@@ -448,9 +469,22 @@ export const BLOCK_DEFS: BlockDef[] = [
     type: "clientGalleries",
     name: "Client gallery access",
     category: "Dynamic",
-    desc: "Your published client galleries with links, the client area",
-    fields: [txt("heading", "Heading"), area("intro", "Intro text"), tog("showCovers", "Show gallery covers")],
-    defaults: { heading: "Find your gallery", intro: "Enter through your gallery below, you may need the password from your welcome email.", showCovers: true },
+    desc: "Auto lists your published client galleries, each opening through its own password or email gate",
+    fields: [
+      txt("heading", "Heading"), area("intro", "Intro text"),
+      sel("which", "Galleries", [
+        { value: "all", label: "All published galleries" },
+        { value: "homepage", label: "Only galleries set to Show on homepage" },
+        { value: "chosen", label: "Only the galleries listed below" },
+      ]),
+      area("slugs", "Gallery URL slugs (one per line, for the listed option)"),
+      { key: "count", label: "Maximum galleries", kind: "number" },
+      sel("sort", "Order", [{ value: "eventDate", label: "Event date, newest first" }, { value: "created", label: "Recently created" }, { value: "name", label: "Name A-Z" }]),
+      sel("cols", "Columns", columns),
+      tog("showCovers", "Show gallery covers"), tog("showPrerelease", "Include pre-release galleries (visitors can register for launch)"),
+      tog("search", "Show a search box"),
+    ],
+    defaults: { heading: "Find your gallery", intro: "Enter through your gallery below, you may need the password from your welcome email.", which: "all", slugs: "", count: 24, sort: "eventDate", cols: "3", showCovers: true, showPrerelease: false, search: true },
   },
   {
     type: "map",
@@ -469,6 +503,20 @@ export const BLOCK_DEFS: BlockDef[] = [
       { key: "items", label: "Links", kind: "items", itemLabel: "Link", fields: [txt("label", "Label"), txt("url", "URL")] },
     ],
     defaults: { items: [] },
+  },
+  {
+    // Night build (Website): bio link list, the link-in-bio page pattern.
+    type: "linkList",
+    name: "Bio link list",
+    category: "Dynamic",
+    desc: "A link-in-bio stack: portrait, name, and big tappable link buttons for social profiles",
+    fields: [
+      img("avatar", "Portrait or logo"), txt("avatarAlt", "Portrait alt text"),
+      txt("heading", "Name or heading"), area("subtext", "Short line under the name"),
+      { key: "links", label: "Links", kind: "items", itemLabel: "Link", fields: [txt("label", "Label"), txt("url", "URL"), txt("note", "Small note (optional)")] },
+      sel("style", "Button style", [{ value: "pill", label: "Pill buttons" }, { value: "cards", label: "Cards with notes" }]),
+    ],
+    defaults: { avatar: "", avatarAlt: "", heading: "", subtext: "", links: [], style: "pill" },
   },
   // ------------------------------------------------------------- Layout
   {
@@ -495,7 +543,147 @@ export const BLOCK_DEFS: BlockDef[] = [
     fields: [txt("label", "Label"), txt("link", "Link"), sel("align", "Alignment", align), sel("variant", "Style", [{ value: "solid", label: "Solid" }, { value: "outline", label: "Outline" }, { value: "text", label: "Text link" }])],
     defaults: { label: "Learn more", link: "/about", align: "center", variant: "solid" },
   },
+  {
+    // Night build (Website): custom embed code, sanitised to https iframes.
+    type: "embed",
+    name: "Custom embed",
+    category: "Layout",
+    desc: "Embed a video, map, form or widget from another service (paste the embed code or a link; scripts are stripped for safety)",
+    fields: [
+      area("code", "Embed code or link (iframe embeds only, https)"),
+      txt("title", "Title (for accessibility)"),
+      sel("ratio", "Frame shape", [
+        { value: "16:9", label: "Responsive 16:9" },
+        { value: "4:3", label: "Responsive 4:3" },
+        { value: "1:1", label: "Responsive square" },
+        { value: "fixed", label: "Use the size in the embed code" },
+      ]),
+      sel("width", "Width", widths),
+    ],
+    defaults: { code: "", title: "", ratio: "16:9", width: "wide" },
+  },
+  // ------------------------------------------------------------- Phase 5B
+  {
+    type: "bookingCalendar",
+    name: "Booking calendar",
+    category: "Forms",
+    desc: "Live Studio Manager availability with a slot picker, books for real",
+    fields: [
+      txt("heading", "Heading"), area("intro", "Intro text"),
+      { key: "sessionTypeIds", label: "Sessions to offer (none ticked = all open sessions)", kind: "sessionTypes" },
+      sel("layout", "Layout", [{ value: "cards", label: "Session cards" }, { value: "list", label: "Compact list" }]),
+    ],
+    defaults: { heading: "Book your session", intro: "Pick a session, choose an open time, and you're booked.", sessionTypeIds: [], layout: "cards" },
+  },
+  {
+    type: "freeform",
+    name: "Flex canvas",
+    category: "Flex canvas",
+    desc: "Free form section: drag, drop, move and resize text, images, video, buttons and shapes anywhere",
+    fields: [{ key: "elements", label: "Canvas", kind: "canvas" }],
+    defaults: { height: 560, elements: [] },
+  },
 ];
+
+// Phase 5B: per-block design settings, stored in props with a leading
+// underscore so every block type supports them. Rendered by RenderBlocks.
+export const BLOCK_STYLE_KEYS = ["_palette", "_anchor", "_navLabel", "_width", "_minHeight", "_dev"] as const;
+
+// Night build (Website): per device layout overrides, stored in props._dev.
+// Desktop uses _width/_minHeight; tablet and mobile can override width and
+// minimum height, or hide the block entirely on that device class.
+export interface DeviceOverride {
+  hidden?: boolean;
+  width?: number; // percent, 20..100
+  minHeight?: number; // px
+}
+export interface DeviceLayouts {
+  tablet?: DeviceOverride;
+  mobile?: DeviceOverride;
+}
+export function parseDeviceLayouts(v: unknown): DeviceLayouts {
+  if (!v || typeof v !== "object") return {};
+  const raw = v as Record<string, unknown>;
+  const one = (x: unknown): DeviceOverride | undefined => {
+    if (!x || typeof x !== "object") return undefined;
+    const o = x as Record<string, unknown>;
+    const out: DeviceOverride = {};
+    if (typeof o.hidden === "boolean") out.hidden = o.hidden;
+    const w = Number(o.width);
+    if (Number.isFinite(w) && w > 0) out.width = Math.min(100, Math.max(20, Math.round(w)));
+    const h = Number(o.minHeight);
+    if (Number.isFinite(h) && h > 0) out.minHeight = Math.min(2000, Math.round(h));
+    return Object.keys(out).length ? out : undefined;
+  };
+  const tablet = one(raw.tablet);
+  const mobile = one(raw.mobile);
+  return { ...(tablet ? { tablet } : {}), ...(mobile ? { mobile } : {}) };
+}
+
+export interface FreeElement {
+  id: string;
+  kind: "text" | "image" | "video" | "button" | "shape";
+  x: number; // percent of canvas width
+  y: number; // percent of canvas height
+  w: number; // percent of canvas width
+  h: number; // percent of canvas height
+  rotate?: number;
+  z?: number;
+  text?: string;
+  fontSize?: number;
+  color?: string;
+  align?: string;
+  font?: string; // display | body
+  url?: string;
+  alt?: string;
+  link?: string;
+  variant?: string;
+  shape?: string; // rect | circle | line
+  fill?: string;
+  radius?: number;
+  opacity?: number;
+}
+
+export const FREEFORM_WIDTH = 1152; // design width of a Flex canvas (matches the site's wide container)
+
+export function newFreeElement(kind: FreeElement["kind"], x = 35, y = 35): FreeElement {
+  const id = `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const base = { id, kind, x, y, rotate: 0, z: 1, opacity: 1 };
+  switch (kind) {
+    case "text":
+      return { ...base, w: 36, h: 14, text: "Double click to edit", fontSize: 32, color: "", align: "left", font: "display" };
+    case "image":
+      return { ...base, w: 30, h: 45, url: "", alt: "" };
+    case "video":
+      return { ...base, w: 40, h: 40, url: "" };
+    case "button":
+      return { ...base, w: 18, h: 9, text: "Book now", link: "/contact", variant: "solid" };
+    case "shape":
+      return { ...base, w: 20, h: 25, shape: "rect", fill: "accent", radius: 0, opacity: 0.85, z: 0 };
+  }
+}
+
+export function parseFreeElements(v: unknown): FreeElement[] {
+  if (!Array.isArray(v)) return [];
+  const clamp = (n: unknown, lo: number, hi: number, d: number) => {
+    const x = typeof n === "number" ? n : parseFloat(String(n));
+    return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d;
+  };
+  return v
+    .filter((e): e is Record<string, unknown> => !!e && typeof e === "object" && typeof (e as Record<string, unknown>).kind === "string")
+    .filter((e) => ["text", "image", "video", "button", "shape"].includes(String(e.kind)))
+    .map((e) => ({
+      ...(e as unknown as FreeElement),
+      id: typeof e.id === "string" ? e.id : `e${Math.random().toString(36).slice(2, 9)}`,
+      x: clamp(e.x, -50, 150, 10),
+      y: clamp(e.y, -50, 150, 10),
+      w: clamp(e.w, 1, 200, 20),
+      h: clamp(e.h, 1, 200, 10),
+      rotate: clamp(e.rotate, -360, 360, 0),
+      z: clamp(e.z, 0, 99, 1),
+      opacity: clamp(e.opacity, 0, 1, 1),
+    }));
+}
 
 export const blockDef = (type: string) => BLOCK_DEFS.find((d) => d.type === type);
 

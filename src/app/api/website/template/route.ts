@@ -17,5 +17,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unknown template" }, { status: 400 });
   }
   await applyTemplateToWebsite(website.id, body.templateId);
+  await db.website.update({ where: { id: website.id }, data: { templateChosen: true } }); // Phase 5B platform: setup checklist
   return NextResponse.json({ ok: true });
 }

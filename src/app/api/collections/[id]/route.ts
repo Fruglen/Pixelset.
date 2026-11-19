@@ -36,13 +36,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
   if (typeof body.status === "string" && ["DRAFT", "PRERELEASE", "PUBLISHED"].includes(body.status)) {
     data.status = body.status;
+    if (body.status === "PUBLISHED" && !collection.publishedAt) data.publishedAt = new Date();
   }
   if ("folderId" in body) data.folderId = body.folderId || null;
 
   // Design
-  for (const key of ["coverStyle", "fontPairing", "palette", "gridStyle", "thumbSize", "gridSpacing", "coverVideoUrl"]) {
+  for (const key of ["coverStyle", "fontPairing", "palette", "gridStyle", "thumbSize", "gridSpacing", "coverVideoUrl", "coverImageUrl", "navStyle", "language"]) {
     if (typeof body[key] === "string") data[key] = body[key];
   }
+  // Phase 5B gallery switches
+  for (const key of ["coverAnimation", "seoIndexing", "showOnHomepage", "clientOnlyDownloads", "emailedDownloadAll", "desktopOnlyZip", "favoritesEnabled", "socialSharing", "campaignOptIn", "galleryAssist", "starred"]) {
+    if (typeof body[key] === "boolean") data[key] = body[key];
+  }
+  if (typeof body.zipPartSize === "number") data.zipPartSize = Math.min(2000, Math.max(10, Math.round(body.zipPartSize)));
   if ("coverPhotoId" in body) data.coverPhotoId = body.coverPhotoId || null;
   if (typeof body.focalX === "number") data.focalX = Math.min(1, Math.max(0, body.focalX));
   if (typeof body.focalY === "number") data.focalY = Math.min(1, Math.max(0, body.focalY));
@@ -66,8 +72,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   // Expiry, hides at 11:59pm local on the chosen date
   if ("expiresAt" in body) {
-    data.expiresAt = body.expiresAt ? endOfDay(body.expiresAt) : null;
+    const owner = await db.user.findUnique({ where: { id: collection.userId }, select: { timezone: true } });
+    data.expiresAt = body.expiresAt ? endOfDay(body.expiresAt, owner?.timezone || undefined) : null;
+    // A new expiry date re-arms the automated reminder.
+    if (String(data.expiresAt) !== String(collection.expiresAt)) data.expiryReminderSentAt = null;
   }
+  if (typeof body.expiryReminderDays === "number") data.expiryReminderDays = Math.min(60, Math.max(0, Math.round(body.expiryReminderDays)));
 
   // Store + slideshow (Phase 4)
   for (const key of ["storeEnabled", "slideshowEnabled"]) {

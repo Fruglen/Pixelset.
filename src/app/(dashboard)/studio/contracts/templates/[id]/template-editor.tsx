@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { BrandingFields } from "../../branding-fields";
 
 const SMART_FIELDS = [
   { token: "{{client_name}}", label: "Client name" },
@@ -18,10 +19,19 @@ const SMART_FIELDS = [
   { token: "{{today}}", label: "Today's date" },
 ];
 
-export function TemplateEditor({ template }: { template: { id: string; name: string; body: string } }) {
+export function TemplateEditor({
+  template,
+}: {
+  template: { id: string; name: string; body: string; brandLogoUrl: string; brandColor: string; headerImageUrl: string };
+}) {
   const router = useRouter();
   const [name, setName] = useState(template.name);
   const [body, setBody] = useState(template.body);
+  const [brand, setBrand] = useState({
+    brandLogoUrl: template.brandLogoUrl,
+    brandColor: template.brandColor,
+    headerImageUrl: template.headerImageUrl,
+  });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -31,7 +41,7 @@ export function TemplateEditor({ template }: { template: { id: string; name: str
     const res = await fetch(`/api/studio/contract-templates/${template.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, body }),
+      body: JSON.stringify({ name, body, ...brand }),
     });
     setBusy(false);
     if (res.ok) {
@@ -76,6 +86,7 @@ export function TemplateEditor({ template }: { template: { id: string; name: str
           <label className="label">Template name</label>
           <input className="input max-w-md" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
+        <BrandingFields value={brand} onChange={setBrand} note="New contracts made from this template start with this branding, and each contract can override it." />
         <div>
           <label className="label">Smart fields, click to insert at the cursor</label>
           <div className="flex flex-wrap gap-1.5">

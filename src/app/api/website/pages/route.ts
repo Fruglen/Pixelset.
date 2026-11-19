@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { slugify } from "@/lib/utils";
 import { makeBlock } from "@/lib/blocks";
+import { landingById } from "@/lib/templates";
+import { WEBSITE_LIMITS, capMessage, planFor, tierLabel } from "@/lib/plans";
 
 async function ownWebsite() {
   const user = await getCurrentUser();
@@ -14,12 +16,25 @@ async function ownWebsite() {
 export async function POST(req: NextRequest) {
   const website = await ownWebsite();
   if (!website) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Night build (Pricing lane): Website Free plan cap, 15 pages.
+  {
+    const plan = await planFor(website.userId);
+    const limit = WEBSITE_LIMITS[plan.website].pages;
+    if (Number.isFinite(limit)) {
+      const count = await db.sitePage.count({ where: { websiteId: website.id } });
+      if (count >= limit) {
+        return NextResponse.json({ error: capMessage("website pages", limit, tierLabel("website", plan.website)) }, { status: 403 });
+      }
+    }
+  }
 
   const body = await req.json();
-  const title = typeof body.title === "string" ? body.title.trim() : "";
+  const landing = typeof body.landing === "string" ? landingById(body.landing) : undefined;
+  if (typeof body.landing === "string" && !landing) return NextResponse.json({ error: "Unknown landing page" }, { status: 400 });
+  const title = typeof body.title === "string" && body.title.trim() ? body.title.trim() : landing?.title ?? "";
   if (!title) return NextResponse.json({ error: "Title is required" }, { status: 400 });
 
-  let slug = slugify(typeof body.slug === "string" && body.slug.trim() ? body.slug : title);
+  let slug = slugify(typeof body.slug === "string" && body.slug.trim() ? body.slug : landing?.slug ?? title);
   if (!slug || slug === "blog") slug = `${slug || "page"}-2`;
   let candidate = slug;
   let i = 1;
@@ -35,10 +50,11 @@ export async function POST(req: NextRequest) {
       title,
       slug: candidate,
       order: (max._max.order ?? 0) + 1,
-      blocks: JSON.stringify([
-        makeBlock("heading", { heading: title, align: "center" }),
-        makeBlock("text", { body: "Write something here." }),
-      ]),
+      blocks: JSON.stringify(
+        landing
+          ? landing.blocks()
+          : [makeBlock("heading", { heading: title, align: "center" }), makeBlock("text", { body: "Write something here." })]
+      ),
     },
   });
   return NextResponse.json({ id: page.id });

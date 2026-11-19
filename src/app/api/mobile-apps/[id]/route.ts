@@ -25,6 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const app = await owned(params.id);
   if (!app) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  await db.mobileAppClient.deleteMany({ where: { appId: app.id } }); // Phase 5B per client installs
   await db.mobileApp.delete({ where: { id: app.id } });
   return NextResponse.json({ ok: true });
 }

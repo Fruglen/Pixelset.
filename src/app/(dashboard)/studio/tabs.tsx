@@ -11,8 +11,10 @@ const TABS = [
   { href: "/studio/contracts", label: "Contracts" },
   { href: "/studio/invoices", label: "Invoices" },
   { href: "/studio/questionnaires", label: "Questionnaires" },
+  { href: "/studio/forms", label: "Lead forms" },
   { href: "/studio/projects", label: "Projects" },
   { href: "/studio/automations", label: "Automations" },
+  { href: "/studio/reports", label: "Payments" },
   { href: "/studio/inbox", label: "Inbox" },
   { href: "/studio/settings", label: "Settings" },
 ];

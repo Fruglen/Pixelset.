@@ -1,6 +1,8 @@
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { fmtMoney } from "@/lib/studio";
+import { syncStatus } from "@/lib/accounting";
+import ExportIntegrations from "./integrations-client";
 
 export const dynamic = "force-dynamic";
 
@@ -135,6 +137,7 @@ export default async function ReportsPage() {
           </div>
         </div>
         <RevenueChart data={revenueByMonth} />
+        <div className="overflow-x-auto">
         <table className="w-full text-xs mt-3">
           <thead>
             <tr className="text-left text-neutral-400 uppercase tracking-wide">
@@ -155,6 +158,7 @@ export default async function ReportsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Views, single series, no legend needed (title names it) */}
@@ -166,6 +170,7 @@ export default async function ReportsPage() {
       {/* Per-collection engagement */}
       <div className="card p-5">
         <h2 className="font-medium mb-3">Galleries</h2>
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-neutral-400 uppercase tracking-wide">
@@ -193,6 +198,7 @@ export default async function ReportsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Bulk export */}
@@ -224,6 +230,8 @@ export default async function ReportsPage() {
           ))}
         </div>
       </div>
+
+      <ExportIntegrations status={await syncStatus(user.id)} />
     </div>
   );
 }

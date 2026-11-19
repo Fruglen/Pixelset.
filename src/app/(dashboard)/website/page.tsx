@@ -2,9 +2,11 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { parseBlocks } from "@/lib/blocks";
-import { TEMPLATES } from "@/lib/templates";
+import { TEMPLATES, LANDING_PAGES } from "@/lib/templates";
 import { SITE_PALETTES } from "@/lib/website";
 import { CreateWebsite, PagesList } from "./website-client";
+import { websiteChecklist } from "@/lib/onboarding";
+import { SetupChecklistCard } from "@/components/setup-checklist";
 
 export const dynamic = "force-dynamic";
 
@@ -42,5 +44,11 @@ export default async function WebsitePage() {
     blockCount: parseBlocks(p.blocks).length,
   }));
 
-  return <PagesList pages={pages} siteSlug={website.slug} />;
+  const setup = await websiteChecklist(user.id);
+  return (
+    <>
+      {setup ? <div className="mb-6"><SetupChecklistCard list={setup} /></div> : null}
+      <PagesList pages={pages} siteSlug={website.slug} landings={LANDING_PAGES.map((l) => ({ id: l.id, name: l.name, desc: l.desc }))} />
+    </>
+  );
 }

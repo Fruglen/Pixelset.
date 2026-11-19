@@ -4,6 +4,7 @@ import { mkdir, rm } from "fs/promises";
 import path from "path";
 import sharp from "sharp";
 import { createWebsiteForUser } from "../src/lib/site-service";
+import { seed5b } from "./seed-5b";
 
 const db = new PrismaClient();
 
@@ -1287,6 +1288,8 @@ With gratitude,
       ),
     },
   });
+
+  await seed5b(db, user.id);
 
   console.log("Seeded demo account:");
   console.log("  email:    demo@pixelset.app");

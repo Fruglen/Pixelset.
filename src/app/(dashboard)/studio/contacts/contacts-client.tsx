@@ -14,12 +14,15 @@ interface ContactRow {
   bookings: number;
   invoices: number;
   notes: number;
+  state: string; // LEAD | CLIENT
+  source: string;
 }
 
 export function ContactsClient({ contacts }: { contacts: ContactRow[] }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState("");
+  const [stateFilter, setStateFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", phone: "", company: "", tags: "" });
@@ -34,8 +37,13 @@ export function ContactsClient({ contacts }: { contacts: ContactRow[] }) {
     return Array.from(s).sort();
   }, [contacts]);
 
+  const leadCount = contacts.filter((c) => c.state !== "CLIENT").length;
+  const clientCount = contacts.length - leadCount;
+
   const filtered = contacts.filter((c) => {
     if (tag && !c.tags.includes(tag)) return false;
+    if (stateFilter === "LEAD" && c.state === "CLIENT") return false;
+    if (stateFilter === "CLIENT" && c.state !== "CLIENT") return false;
     if (!query) return true;
     const q = query.toLowerCase();
     return (
@@ -89,13 +97,18 @@ export function ContactsClient({ contacts }: { contacts: ContactRow[] }) {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <input
             className="input !w-64"
             placeholder="Search name, email, company…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          <select className="input !w-auto" value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
+            <option value="">All people ({contacts.length})</option>
+            <option value="LEAD">Leads ({leadCount})</option>
+            <option value="CLIENT">Clients ({clientCount})</option>
+          </select>
           {allTags.length ? (
             <select className="input !w-auto" value={tag} onChange={(e) => setTag(e.target.value)}>
               <option value="">All tags</option>
@@ -138,6 +151,30 @@ export function ContactsClient({ contacts }: { contacts: ContactRow[] }) {
                   {c.phone ? ` · ${c.phone}` : ""}
                 </p>
               </div>
+              <span
+                className={
+                  c.state === "CLIENT"
+                    ? "text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 whitespace-nowrap"
+                    : "text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap"
+                }
+              >
+                {c.state === "CLIENT" ? "Client" : "Lead"}
+              </span>
+              <button
+                className="text-[11px] underline text-neutral-400 whitespace-nowrap"
+                onClick={async (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  await fetch(`/api/studio/contacts/${c.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ state: c.state === "CLIENT" ? "LEAD" : "CLIENT" }),
+                  });
+                  router.refresh();
+                }}
+              >
+                {c.state === "CLIENT" ? "Move to lead" : "Mark as client"}
+              </button>
               <div className="hidden sm:flex gap-1.5">
                 {c.tags.map((t) => (
                   <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 text-neutral-600">

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
+import { UPLOAD_LIMITS_TEXT, clientLimitError, runPool, uploadOne, type QueueItem } from "@/lib/upload-client";
 
 type PhotoItem = {
   id: string;
@@ -14,6 +15,8 @@ type PhotoItem = {
   posterUrl: string;
   durationSec: number | null;
   fileSize: number | null;
+  starred: boolean;
+  watermarkMode: string;
 };
 type SetItem = {
   id: string;
@@ -26,7 +29,9 @@ type SetItem = {
 };
 
 const UPLOAD_ACCEPT =
-  "image/*,video/mp4,video/quicktime,video/x-m4v,.mp4,.mov,.m4v,.cr2,.cr3,.nef,.arw,.dng,.raf,.orf,.rw2";
+  "image/*,video/mp4,video/quicktime,video/x-m4v,video/x-msvideo,.mp4,.mov,.m4v,.avi,.cr2,.cr3,.nef,.arw,.dng,.raf,.orf,.rw2";
+
+
 
 function fmtDuration(sec: number | null): string {
   if (!sec || sec <= 0) return "";
@@ -83,11 +88,15 @@ export default function PhotosClient({
   sets,
   quickShares,
   invites,
+  targets,
+  mailConnected,
 }: {
   collection: { id: string; slug: string; coverPhotoId: string | null; status: string };
   sets: SetItem[];
   quickShares: { id: string; token: string; count: number }[];
-  invites: { id: string; email: string; createdAt: string }[];
+  invites: { id: string; email: string; createdAt: string; status: string; deliveryNote: string }[];
+  targets: { id: string; name: string; sets: { id: string; name: string }[] }[];
+  mailConnected: boolean;
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -112,6 +121,35 @@ export default function PhotosClient({
   const [picflowResult, setPicflowResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [syncBusy, setSyncBusy] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [dragSet, setDragSet] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [showPhone, setShowPhone] = useState(false);
+  const [phoneQr, setPhoneQr] = useState("");
+  const [invitePreview, setInvitePreview] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  // Final pass: invite templates, scheduling and multi recipient sending
+  const [inviteTemplates, setInviteTemplates] = useState<{ id: string; name: string; subject: string }[]>([]);
+  const [inviteTemplateId, setInviteTemplateId] = useState("");
+  const [inviteSendAt, setInviteSendAt] = useState("");
+  const [inviteTplName, setInviteTplName] = useState("");
+  const [inviteTplMsg, setInviteTplMsg] = useState("");
+  useEffect(() => {
+    fetch("/api/gallery-templates")
+      .then((r) => (r.ok ? r.json() : { templates: [] }))
+      .then((d) => setInviteTemplates(d.templates ?? []))
+      .catch(() => {});
+  }, []);
+  const [starredOnly, setStarredOnly] = useState(false);
+  const allPhotoIds = sets.flatMap((s) => s.photos.map((p) => p.id));
+
+  useEffect(() => {
+    if (!showPhone) return;
+    QRCode.toDataURL(`${window.location.origin}/m/upload/${collection.id}`, { width: 200, margin: 1 })
+      .then(setPhoneQr)
+      .catch(() => setPhoneQr(""));
+  }, [showPhone, collection.id]);
 
   const shareOpen = showShare;
   useEffect(() => {
@@ -186,16 +224,141 @@ export default function PhotosClient({
     });
   }
 
-  async function uploadFiles(files: FileList | null) {
-    if (!files || files.length === 0 || !targetSet) return;
+  // Phase 5B: every file (picker or drag and drop) goes through one queue with
+  // its own progress and result. Phase 5B platform: uploads are chunked and
+  // resumable with automatic retry (src/lib/upload-client.ts), three files run
+  // at a time so a 1000 photo wedding keeps moving, and failed files can be
+  // retried, resuming from the chunks the server already has.
+  async function runQueue(items: QueueItem[]) {
     setUploading(true);
-    const form = new FormData();
-    form.append("setId", targetSet);
-    Array.from(files).forEach((f) => form.append("files", f));
-    await fetch(`/api/collections/${collection.id}/photos`, { method: "POST", body: form });
+    const patch = (key: string, d: Partial<QueueItem>) => setQueue((q) => q.map((x) => (x.key === key ? { ...x, ...d } : x)));
+    await runPool(items, 3, async (item) => {
+      const f = item.file!;
+      const pre = clientLimitError(f);
+      if (pre) {
+        patch(item.key, { status: "error", error: pre });
+        return;
+      }
+      patch(item.key, { status: "uploading", error: undefined, note: undefined });
+      const error = await uploadOne(
+        collection.id,
+        item.setId!,
+        f,
+        (pct) => patch(item.key, { progress: pct }),
+        (attempt, why) => patch(item.key, { note: `${why}, retrying (attempt ${attempt + 1})` })
+      );
+      patch(item.key, error ? { status: "error", error, note: undefined } : { status: "done", progress: 100, note: undefined, file: undefined });
+    });
     setUploading(false);
-    if (fileRef.current) fileRef.current.value = "";
     router.refresh();
+  }
+
+  async function uploadFiles(files: FileList | File[] | null, setId = targetSet) {
+    const list = files ? Array.from(files) : [];
+    if (list.length === 0 || !setId) return;
+    const setName = sets.find((x) => x.id === setId)?.name ?? "";
+    const stamp = Date.now();
+    const items: QueueItem[] = list.map((f, i) => ({ key: `${stamp}-${i}`, name: f.name, size: f.size, setName, status: "queued", progress: 0, file: f, setId }));
+    setQueue((q) => [...items, ...q.filter((x) => x.status !== "done")]);
+    if (fileRef.current) fileRef.current.value = "";
+    await runQueue(items);
+  }
+
+  function retryFailed() {
+    const failed = queue.filter((q) => q.status === "error" && q.file);
+    if (failed.length === 0) return;
+    setQueue((q) => q.map((x) => (x.status === "error" && x.file ? { ...x, status: "queued", error: undefined } : x)));
+    runQueue(failed);
+  }
+
+  // Warn before leaving while files are still uploading (a resume is possible, but explain it).
+  useEffect(() => {
+    if (!uploading) return;
+    const h = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [uploading]);
+
+  function onDrop(e: React.DragEvent, setId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragSet(null);
+    if (e.dataTransfer.files?.length) uploadFiles(e.dataTransfer.files, setId);
+  }
+
+  function dragProps(setId: string) {
+    return {
+      onDragOver: (e: React.DragEvent) => {
+        if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        if (dragSet !== setId) setDragSet(setId);
+      },
+      onDragLeave: (e: React.DragEvent) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+        setDragSet((d) => (d === setId ? null : d));
+      },
+      onDrop: (e: React.DragEvent) => onDrop(e, setId),
+    };
+  }
+
+  // Phase 5B: one action applied to every selected photo.
+  async function bulk(action: string, extra: Record<string, unknown> = {}, confirmText = "") {
+    if (selected.size === 0) return;
+    if (confirmText && !confirm(confirmText)) return;
+    setBulkBusy(true);
+    setBulkMsg(null);
+    try {
+      const res = await fetch(`/api/collections/${collection.id}/photos/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photoIds: Array.from(selected), action, ...extra }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBulkMsg({ ok: false, text: data.error || "That action failed" });
+        return;
+      }
+      const verbs: Record<string, string> = {
+        move: "moved",
+        copy: "copied",
+        delete: "deleted",
+        rename: "renamed",
+        watermark: "updated",
+        private: "updated",
+        star: "updated",
+      };
+      setBulkMsg({ ok: true, text: `${data.count} photo${data.count === 1 ? "" : "s"} ${verbs[action] ?? "updated"}` });
+      if (action === "delete" || action === "move") setSelected(new Set());
+      router.refresh();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  function bulkRename() {
+    const pattern = prompt("Rename the selected photos. Use {n} for a sequence number and {name} for the current name:", "Gallery-{n}");
+    if (!pattern || !pattern.trim()) return;
+    bulk("rename", { pattern: pattern.trim(), start: 1 });
+  }
+
+  function selectSet(set: SetItem) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const all = set.photos.every((p) => next.has(p.id));
+      set.photos.forEach((p) => (all ? next.delete(p.id) : next.add(p.id)));
+      return next;
+    });
+  }
+
+  async function loadInvitePreview() {
+    const params = new URLSearchParams({ preview: "1", message: inviteMessage, name: inviteName });
+    const res = await fetch(`/api/collections/${collection.id}/invite?${params.toString()}`);
+    const data = await res.json().catch(() => ({}));
+    setInvitePreview(res.ok ? data.html : "");
   }
 
   async function addByUrl() {
@@ -270,23 +433,78 @@ export default function PhotosClient({
 
   async function sendInvite(e: React.FormEvent) {
     e.preventDefault();
+    const emails = inviteEmail
+      .split(/[\n,;]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s.includes("@"));
+    if (emails.length === 0) {
+      setInviteSent("Add at least one valid email address.");
+      return;
+    }
+    const payload: Record<string, unknown> = { message: inviteMessage };
+    if (emails.length === 1) {
+      payload.email = emails[0];
+      payload.name = inviteName;
+    } else {
+      payload.recipients = emails.map((email) => ({ email }));
+    }
+    if (inviteTemplateId) payload.templateId = inviteTemplateId;
+    if (inviteSendAt) payload.sendAt = new Date(inviteSendAt).toISOString();
     const res = await fetch(`/api/collections/${collection.id}/invite`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: inviteEmail, message: inviteMessage }),
+      body: JSON.stringify(payload),
     });
-    if (res.ok) {
-      const data = await res.json().catch(() => ({}));
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setInviteSent(data.error || "Could not send the invite.");
+      return;
+    }
+    if (data.scheduled) {
+      setInviteSent(
+        `Invite scheduled for ${emails.length} recipient${emails.length === 1 ? "" : "s"} at ${new Date(inviteSendAt).toLocaleString()}. It sends on its own when the time comes.`
+      );
+    } else if (emails.length > 1) {
+      const sent = (data.results ?? []).filter((r: { delivered: boolean }) => r.delivered).length;
+      setInviteSent(`Invites sent to ${emails.length} clients: ${sent} delivered now, the rest logged.`);
+    } else {
       setInviteSent(
         data.delivered
-          ? `Invite delivered to ${inviteEmail} via Resend`
+          ? `Invite delivered to ${emails[0]} via Resend`
           : data.deliveryError
-            ? `Invite to ${inviteEmail} logged, but sending failed: ${data.deliveryError}`
-            : `Invite to ${inviteEmail} logged (no email service connected)`
+            ? `Invite to ${emails[0]} logged, but sending failed: ${data.deliveryError}`
+            : `Invite to ${emails[0]} logged only. Email is not connected, so nothing was delivered.`
       );
-      setInviteEmail("");
-      setInviteMessage("");
-      router.refresh();
+    }
+    setInviteEmail("");
+    setInviteName("");
+    setInviteMessage("");
+    setInvitePreview("");
+    setInviteSendAt("");
+    router.refresh();
+  }
+
+  async function saveInviteTemplate() {
+    if (!inviteTplName.trim()) {
+      setInviteTplMsg("Name the template first.");
+      return;
+    }
+    const res = await fetch("/api/gallery-templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: inviteTplName.trim(),
+        subject: "Your gallery is ready",
+        body: inviteMessage.trim() || "Your photos are ready. Open your gallery from the button below.",
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setInviteTemplates((t) => [...t, { id: data.id, name: inviteTplName.trim(), subject: "Your gallery is ready" }]);
+      setInviteTplName("");
+      setInviteTplMsg("Template saved. Pick it from the template list on the next invite.");
+    } else {
+      setInviteTplMsg(data.error || "Could not save the template.");
     }
   }
 
@@ -341,15 +559,188 @@ export default function PhotosClient({
         <button className="btn-secondary" onClick={() => setShowPicflow((v) => !v)}>
           Link a Picflow gallery
         </button>
+        <button className="btn-secondary" onClick={() => setShowPhone((v) => !v)}>
+          Upload from phone
+        </button>
         <button className="btn-secondary" onClick={() => setShowShare(true)}>
           Share
         </button>
-        {selected.size > 0 && (
-          <button className="btn-secondary" onClick={createQuickShare}>
-            Quick Share {selected.size} selected
-          </button>
-        )}
       </div>
+
+      {/* Phase 5B: drag and drop target feeding the same upload route */}
+      <div
+        {...dragProps(targetSet)}
+        onClick={() => fileRef.current?.click()}
+        className={`mb-6 rounded-lg border-2 border-dashed px-6 py-6 text-center cursor-pointer transition-colors ${
+          dragSet === targetSet ? "border-neutral-900 bg-neutral-100" : "border-neutral-300 hover:border-neutral-500"
+        }`}
+      >
+        <p className="text-sm font-medium">
+          {dragSet === targetSet ? "Drop to upload" : "Drag and drop photos and videos here, or click to choose files"}
+        </p>
+        <p className="text-xs text-neutral-500 mt-1">
+          Uploading to {sets.find((x) => x.id === targetSet)?.name ?? "a set"}. You can also drop files straight onto any set below.
+        </p>
+        <p className="text-[11px] text-neutral-400 mt-1">Limits: {UPLOAD_LIMITS_TEXT}.</p>
+      </div>
+
+      {queue.length > 0 && (
+        <div className="card p-4 mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium">
+              Uploads: {queue.filter((q) => q.status === "done").length} done
+              {queue.some((q) => q.status === "error") ? `, ${queue.filter((q) => q.status === "error").length} failed` : ""}
+              {uploading ? `, ${queue.filter((q) => q.status === "queued" || q.status === "uploading").length} remaining` : ""}
+            </p>
+            {!uploading && (
+              <span className="flex gap-3">
+                {queue.some((q) => q.status === "error" && q.file) && (
+                  <button className="text-xs text-neutral-900 underline" onClick={retryFailed}>
+                    Retry failed
+                  </button>
+                )}
+                <button className="text-xs text-neutral-500 underline" onClick={() => setQueue([])}>
+                  Clear
+                </button>
+              </span>
+            )}
+          </div>
+          <ul className="space-y-1.5 max-h-56 overflow-y-auto">
+            {queue.slice(0, 300).map((q) => (
+              <li key={q.key} className="text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="truncate flex-1" title={q.name}>
+                    {q.name} <span className="text-neutral-400">to {q.setName}</span>
+                  </span>
+                  <span
+                    className={
+                      q.status === "done" ? "text-emerald-600" : q.status === "error" ? "text-red-600" : "text-neutral-500"
+                    }
+                  >
+                    {q.status === "done" ? "Uploaded" : q.status === "error" ? "Failed" : q.status === "uploading" ? `${q.progress}%` : "Waiting"}
+                  </span>
+                </div>
+                {q.status === "uploading" && (
+                  <div className="h-1 bg-neutral-100 rounded mt-1">
+                    <div className="h-1 bg-neutral-900 rounded" style={{ width: `${q.progress}%` }} />
+                  </div>
+                )}
+                {q.note && q.status === "uploading" && <p className="text-amber-600 mt-0.5">{q.note}</p>}
+                {q.error && <p className="text-red-600 mt-0.5">{q.error}</p>}
+              </li>
+            ))}
+          </ul>
+          {queue.length > 300 && <p className="text-[11px] text-neutral-400 mt-1">Showing the first 300 of {queue.length} files.</p>}
+          <p className="text-[11px] text-neutral-400 mt-1">
+            Files go up in 4 MB chunks with automatic retry. If the connection drops or you close the tab, drop the same files
+            again and they resume from where they stopped.
+          </p>
+        </div>
+      )}
+
+      {showPhone && (
+        <div className="card p-4 mb-6 flex items-center gap-5">
+          {phoneQr ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={phoneQr} alt="QR code for the phone upload screen" className="h-32 w-32 border border-neutral-200 rounded" />
+          ) : (
+            <div className="h-32 w-32 border border-neutral-200 rounded" />
+          )}
+          <div className="text-sm">
+            <p className="font-medium">Upload from your phone</p>
+            <p className="text-xs text-neutral-500 mt-1 max-w-md">
+              Scan this code with your phone (signed in to Pixelset) to open the mobile upload screen. Take photos with the
+              camera or pick them from your camera roll, they land in this collection.
+            </p>
+            <a className="text-xs underline mt-2 inline-block" href={`/m/upload/${collection.id}`} target="_blank" rel="noreferrer">
+              Open the mobile upload screen
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* Phase 5B: bulk action bar */}
+      {selected.size > 0 && (
+        <div className="sticky top-2 z-20 card px-4 py-3 mb-6 flex flex-wrap items-center gap-2 shadow-md">
+          <span className="text-sm font-medium mr-1">{selected.size} selected</span>
+          <button className="text-xs underline text-neutral-500" onClick={() => setSelected(new Set(allPhotoIds))}>
+            Select all
+          </button>
+          <button className="text-xs underline text-neutral-500 mr-2" onClick={() => setSelected(new Set())}>
+            Clear
+          </button>
+          <select
+            className="input !w-auto !py-1 text-xs"
+            value=""
+            disabled={bulkBusy}
+            onChange={(e) => e.target.value && bulk("move", { setId: e.target.value })}
+          >
+            <option value="">Move to set…</option>
+            {sets.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+          </select>
+          <select
+            className="input !w-auto !py-1 text-xs"
+            value=""
+            disabled={bulkBusy}
+            onChange={(e) => {
+              const [cid, sid] = e.target.value.split("|");
+              if (sid) bulk("copy", { collectionId: cid, setId: sid });
+            }}
+          >
+            <option value="">Copy to…</option>
+            {targets.map((t) => (
+              <optgroup key={t.id} label={t.id === collection.id ? `${t.name} (this collection)` : t.name}>
+                {t.sets.map((x) => (
+                  <option key={x.id} value={`${t.id}|${x.id}`}>
+                    {x.name}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <button className="btn-secondary !py-1 !px-2 text-xs" disabled={bulkBusy} onClick={bulkRename}>
+            Rename
+          </button>
+          <select
+            className="input !w-auto !py-1 text-xs"
+            value=""
+            disabled={bulkBusy}
+            onChange={(e) => e.target.value && bulk("watermark", { mode: e.target.value })}
+          >
+            <option value="">Watermark…</option>
+            <option value="on">Always watermark</option>
+            <option value="off">Never watermark</option>
+            <option value="inherit">Follow collection setting</option>
+          </select>
+          <button className="btn-secondary !py-1 !px-2 text-xs" disabled={bulkBusy} onClick={() => bulk("star", { value: true })}>
+            ★ Star
+          </button>
+          <button className="btn-secondary !py-1 !px-2 text-xs" disabled={bulkBusy} onClick={() => bulk("star", { value: false })}>
+            Unstar
+          </button>
+          <button className="btn-secondary !py-1 !px-2 text-xs" disabled={bulkBusy} onClick={() => bulk("private", { value: true })}>
+            Make private
+          </button>
+          <button className="btn-secondary !py-1 !px-2 text-xs" disabled={bulkBusy} onClick={() => bulk("private", { value: false })}>
+            Unhide
+          </button>
+          <button className="btn-secondary !py-1 !px-2 text-xs" disabled={bulkBusy} onClick={createQuickShare}>
+            Quick Share
+          </button>
+          <button
+            className="btn-danger !py-1 !px-2 text-xs"
+            disabled={bulkBusy}
+            onClick={() => bulk("delete", {}, `Delete ${selected.size} photo${selected.size === 1 ? "" : "s"}? This cannot be undone.`)}
+          >
+            Delete
+          </button>
+          {bulkMsg && <span className={`text-xs ${bulkMsg.ok ? "text-emerald-600" : "text-red-600"}`}>{bulkMsg.text}</span>}
+        </div>
+      )}
 
       {showPicflow && (
         <div className="card p-4 mb-6 space-y-3">
@@ -421,8 +812,22 @@ export default function PhotosClient({
       )}
 
       {/* Sets */}
+      <div className="flex justify-end mb-3">
+        <button
+          type="button"
+          onClick={() => setStarredOnly((v) => !v)}
+          aria-pressed={starredOnly}
+          className={`text-xs px-2 py-1 rounded border ${starredOnly ? "bg-amber-50 border-amber-300 text-amber-700" : "border-neutral-200 text-neutral-500 hover:text-neutral-900"}`}
+        >
+          ★ {starredOnly ? "Showing starred photos" : "Show starred only"} ({sets.reduce((n, st) => n + st.photos.filter((p) => p.starred).length, 0)})
+        </button>
+      </div>
       {sets.map((set) => (
-        <section key={set.id} className="mb-8">
+        <section
+          key={set.id}
+          {...dragProps(set.id)}
+          className={`mb-8 rounded-lg ${dragSet === set.id && set.id !== targetSet ? "ring-2 ring-neutral-900 ring-offset-4" : ""}`}
+        >
           <div className="flex items-center gap-3 mb-3">
             {editingSet === set.id ? (
               <input
@@ -447,6 +852,11 @@ export default function PhotosClient({
               </h3>
             )}
             <span className="text-xs text-neutral-400">{set.photos.length} photos</span>
+            {set.photos.length > 0 && (
+              <button className="text-xs text-neutral-500 underline" onClick={() => selectSet(set)}>
+                {set.photos.every((p) => selected.has(p.id)) ? "Deselect set" : "Select set"}
+              </button>
+            )}
             {set.clientExclusive && (
               <span className="text-[10px] uppercase tracking-wide bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded">
                 Client exclusive{set.clientEmail ? ` · ${set.clientEmail}` : ""}
@@ -494,11 +904,11 @@ export default function PhotosClient({
 
           {set.photos.length === 0 ? (
             <div className="border border-dashed border-neutral-300 rounded-lg p-8 text-center text-sm text-neutral-400">
-              No photos in this set yet.
+              No photos in this set yet. Drop files here to upload them into {set.name}.
             </div>
           ) : (
             <div className="grid grid-cols-5 gap-3">
-              {set.photos.map((p) => (
+              {set.photos.filter((p) => !starredOnly || p.starred).map((p) => (
                 <div key={p.id} className="group relative card overflow-hidden">
                   <div className="aspect-square bg-neutral-100">
                     <Thumb p={p} />
@@ -508,8 +918,16 @@ export default function PhotosClient({
                     checked={selected.has(p.id)}
                     onChange={() => toggleSelect(p.id)}
                     className="absolute top-2 left-2 h-4 w-4 accent-neutral-900"
-                    title="Select for Quick Share"
+                    title="Select for bulk actions"
                   />
+                  <div className="absolute top-8 left-2 flex flex-col gap-1 items-start">
+                    {p.starred && <span className="text-[10px] bg-amber-400 text-white px-1.5 py-0.5 rounded">★</span>}
+                    {p.watermarkMode !== "inherit" && (
+                      <span className="text-[9px] bg-neutral-800/80 text-white px-1.5 py-0.5 rounded">
+                        {p.watermarkMode === "on" ? "WM on" : "WM off"}
+                      </span>
+                    )}
+                  </div>
                   {collection.coverPhotoId === p.id && (
                     <span className="absolute top-2 right-2 text-[10px] bg-neutral-900 text-white px-1.5 py-0.5 rounded">
                       Cover
@@ -630,27 +1048,81 @@ export default function PhotosClient({
             <section>
               <p className="label">Email invite</p>
               <form onSubmit={sendInvite} className="space-y-2">
-                <input
-                  className="input"
-                  type="email"
-                  placeholder="client@example.com"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  required
-                />
+                {!mailConnected && (
+                  <p className="text-xs bg-neutral-100 text-neutral-600 rounded p-2">
+                    Email: Not connected. Invites are recorded and shown below, but nothing is delivered until RESEND_API_KEY is
+                    set (Settings, Email sending).
+                  </p>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="client@example.com (several: separate with commas)"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                  />
+                  <input className="input" placeholder="Client name (optional)" value={inviteName} onChange={(e) => setInviteName(e.target.value)} />
+                </div>
                 <textarea
                   className="input h-20"
                   placeholder="Personal message (optional)"
                   value={inviteMessage}
                   onChange={(e) => setInviteMessage(e.target.value)}
                 />
-                <button className="btn-primary">Send Invite</button>
+                <div className="grid grid-cols-2 gap-2">
+                  <select className="input" value={inviteTemplateId} onChange={(e) => setInviteTemplateId(e.target.value)}>
+                    <option value="">No template, one-off message</option>
+                    {inviteTemplates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="input"
+                    type="datetime-local"
+                    value={inviteSendAt}
+                    onChange={(e) => setInviteSendAt(e.target.value)}
+                    title="Send at (leave empty to send now)"
+                  />
+                </div>
+                <div className="flex gap-2 items-center">
+                  <input
+                    className="input"
+                    placeholder="Template name (to reuse this message)"
+                    value={inviteTplName}
+                    onChange={(e) => setInviteTplName(e.target.value)}
+                  />
+                  <button type="button" className="btn-secondary shrink-0" onClick={saveInviteTemplate}>
+                    Save as template
+                  </button>
+                </div>
+                {inviteTplMsg && <p className="text-xs text-neutral-500">{inviteTplMsg}</p>}
+                <div className="flex gap-2">
+                  <button className="btn-primary">{inviteSendAt ? "Schedule Invite" : "Send Invite"}</button>
+                  <button type="button" className="btn-secondary" onClick={loadInvitePreview}>
+                    Preview email
+                  </button>
+                </div>
                 {inviteSent && <p className="text-xs text-emerald-600">{inviteSent}</p>}
               </form>
+              {invitePreview && (
+                <div className="mt-3 border border-neutral-200 rounded overflow-hidden">
+                  <div className="flex items-center justify-between bg-neutral-50 px-2 py-1 text-[11px] text-neutral-500">
+                    <span>Branded invite preview (cover, message, download instructions)</span>
+                    <button onClick={() => setInvitePreview("")}>✕</button>
+                  </div>
+                  <iframe title="Invite preview" srcDoc={invitePreview} className="w-full h-96 bg-white" />
+                </div>
+              )}
               {invites.length > 0 && (
                 <ul className="mt-2 text-xs text-neutral-500 space-y-0.5">
                   {invites.map((i) => (
-                    <li key={i.id}>✓ Sent to {i.email}</li>
+                    <li key={i.id}>
+                      {i.status === "FAILED" ? "✕" : i.status === "SCHEDULED" ? "◷" : "✓"} {i.email}
+                      <span className="text-neutral-400"> · {i.deliveryNote || (i.status === "SCHEDULED" ? "Scheduled" : "Recorded")}</span>
+                    </li>
                   ))}
                 </ul>
               )}

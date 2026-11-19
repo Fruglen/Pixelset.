@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-type Photo = { id: string; url: string; filename: string };
+type Photo = { id: string; url: string; filename: string; setId?: string; raw?: boolean };
+type Destination = { id: string; name: string; sets: { id: string; name: string }[] };
 type Col = { id: string; name: string; photos: Photo[] };
 
 type Adjust = {
@@ -132,7 +133,7 @@ function centeredCrop(frameW: number, frameH: number, ratio: number | null) {
   return { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
 }
 
-export default function EditorClient({ collections }: { collections: Col[] }) {
+export default function EditorClient({ collections, destinations = [], aiConnected = false }: { collections: Col[]; destinations?: Destination[]; aiConnected?: boolean }) {
   const router = useRouter();
   const [colId, setColId] = useState(collections[0]?.id ?? "");
   const col = collections.find((c) => c.id === colId) ?? collections[0];
@@ -144,9 +145,20 @@ export default function EditorClient({ collections }: { collections: Col[] }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedName, setSavedName] = useState("");
+  // Phase 5B: export destination ("" = same set as the original)
+  const [destCol, setDestCol] = useState("");
+  const [destSet, setDestSet] = useState("");
+  const [newSetName, setNewSetName] = useState("");
+  const [newColName, setNewColName] = useState("");
+  const [savedWhere, setSavedWhere] = useState<{ collectionId: string; label: string } | null>(null);
   const [error, setError] = useState("");
   const [cropMode, setCropMode] = useState(false);
   const [cropAspect, setCropAspect] = useState("free");
+  // Night build: AI suggestions (Gemini), learned style, culling panel
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiNote, setAiNote] = useState("");
+  const [aiLocal, setAiLocal] = useState<Adjust | null>(null);
+  const [styleInfo, setStyleInfo] = useState<{ pairs: number; adjust: Adjust } | null>(null);
   // Working crop while in crop mode (applied to geo.crop on Apply)
   const [workingCrop, setWorkingCrop] = useState({ x: 0.05, y: 0.05, w: 0.9, h: 0.9 });
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -189,6 +201,40 @@ export default function EditorClient({ collections }: { collections: Col[] }) {
     setPreset(name);
     setAdjust(p.adjust);
   }, []);
+
+  // Learned style: measured average of this photographer's own past edits.
+  useEffect(() => {
+    fetch("/api/editor/style-profile")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.pairs > 0 && d.adjust) setStyleInfo({ pairs: d.pairs, adjust: { ...NEUTRAL, ...d.adjust } });
+      })
+      .catch(() => {});
+  }, []);
+
+  async function aiSuggest() {
+    if (!photo) return;
+    setAiBusy(true);
+    setAiNote("");
+    setAiLocal(null);
+    const res = await fetch("/api/editor/ai-suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photoId: photo.id }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setAiBusy(false);
+    if (data.local) setAiLocal({ ...NEUTRAL, ...data.local });
+    if (res.ok && data.adjust) {
+      setAdjust({ ...NEUTRAL, ...data.adjust });
+      setPreset("");
+      setAiNote(`AI suggestion applied${data.reason ? `: ${data.reason}` : ""}`);
+    } else if (data.aiConnected === false) {
+      setAiNote("AI is not connected yet (the server needs its Gemini key), so no AI suggestion was made. The on device suggestion from this photo's measured exposure and colour is ready below if you want it.");
+    } else {
+      setAiNote(data.error || "AI suggestion failed.");
+    }
+  }
 
   function enterCropMode() {
     if (!img) return;
@@ -287,12 +333,21 @@ export default function EditorClient({ collections }: { collections: Col[] }) {
     const res = await fetch("/api/editor/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ photoId: photo.id, dataUrl, label }),
+      body: JSON.stringify({
+        photoId: photo.id,
+        dataUrl,
+        label,
+        destCollectionId: destCol === "__new" ? "" : destCol,
+        destSetId: destSet === "__new" ? "" : destSet,
+        newSetName: destSet === "__new" ? newSetName : "",
+        newCollectionName: destCol === "__new" ? newColName : "",
+      }),
     });
     const json = await res.json().catch(() => ({}));
     setSaving(false);
     if (!res.ok) return setError(json.error || "Could not save");
     setSavedName(json.filename);
+    setSavedWhere(json.collectionId ? { collectionId: json.collectionId, label: json.destination } : null);
     router.refresh();
   }
 
@@ -345,6 +400,9 @@ export default function EditorClient({ collections }: { collections: Col[] }) {
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={p.url} alt={p.filename} className="w-full h-full object-cover" loading="lazy" />
+                {p.raw ? (
+                  <span className="absolute bottom-1 left-1 text-[9px] font-semibold tracking-wider bg-black/70 text-white px-1.5 py-0.5 rounded">RAW</span>
+                ) : null}
               </button>
             ))}
           </div>
@@ -468,7 +526,7 @@ export default function EditorClient({ collections }: { collections: Col[] }) {
                 )}
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 items-center">
                 {PRESETS.map((p) => (
                   <button
                     key={p.name}
@@ -480,13 +538,104 @@ export default function EditorClient({ collections }: { collections: Col[] }) {
                     {p.name}
                   </button>
                 ))}
+                {styleInfo ? (
+                  <button
+                    onClick={() => { setAdjust(styleInfo.adjust); setPreset("Your style"); }}
+                    className={`text-xs px-3 py-1.5 rounded-full border ${
+                      preset === "Your style" ? "bg-violet-700 text-white border-violet-700" : "border-violet-300 text-violet-700 hover:border-violet-500"
+                    }`}
+                    title={`Learned from ${styleInfo.pairs} of your past edited photos`}
+                  >
+                    Your style (learned from {styleInfo.pairs} edits)
+                  </button>
+                ) : null}
+                <span className="flex-1" />
+                <button
+                  className="btn-secondary !py-1.5 text-xs"
+                  onClick={aiSuggest}
+                  disabled={aiBusy || !img}
+                  title={aiConnected ? "Ask AI for suggested settings for this photo" : "AI is not connected yet"}
+                >
+                  {aiBusy ? "Thinking…" : "AI suggestions"}
+                </button>
               </div>
+              {photo?.raw ? (
+                <p className="text-xs text-neutral-400">
+                  This is a RAW original. You are editing its full size JPEG preview; saving creates a JPEG copy and the RAW file is never changed.
+                </p>
+              ) : null}
+              {aiNote ? (
+                <div className="card p-3 text-sm text-neutral-600 space-y-2">
+                  <p>{aiNote}</p>
+                  {aiLocal ? (
+                    <button
+                      className="btn-secondary !py-1 text-xs"
+                      onClick={() => { setAdjust(aiLocal); setPreset(""); setAiNote("On device suggestion applied."); }}
+                    >
+                      Use the on device suggestion instead
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="card p-4 grid md:grid-cols-2 gap-x-8 gap-y-3">
                 <Slider label="Brightness" min={50} max={150} value={adjust.brightness} onChange={(v) => { setAdjust({ ...adjust, brightness: v }); setPreset(""); }} />
                 <Slider label="Contrast" min={50} max={150} value={adjust.contrast} onChange={(v) => { setAdjust({ ...adjust, contrast: v }); setPreset(""); }} />
                 <Slider label="Saturation" min={0} max={200} value={adjust.saturation} onChange={(v) => { setAdjust({ ...adjust, saturation: v }); setPreset(""); }} />
                 <Slider label="Warmth" min={-50} max={50} value={adjust.warmth} onChange={(v) => { setAdjust({ ...adjust, warmth: v }); setPreset(""); }} />
+              </div>
+
+              <div className="card p-4 flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="label">Export to gallery</label>
+                  <select
+                    className="input !w-56"
+                    value={destCol}
+                    onChange={(e) => {
+                      setDestCol(e.target.value);
+                      setDestSet("");
+                    }}
+                  >
+                    <option value="">Same set as the original</option>
+                    {destinations.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                    <option value="__new">New gallery…</option>
+                  </select>
+                </div>
+                {destCol === "__new" && (
+                  <div>
+                    <label className="label">New gallery name</label>
+                    <input className="input !w-56" value={newColName} onChange={(e) => setNewColName(e.target.value)} placeholder="Smith Family, edits" />
+                  </div>
+                )}
+                {destCol && destCol !== "__new" && (
+                  <div>
+                    <label className="label">Set</label>
+                    <select className="input !w-48" value={destSet} onChange={(e) => setDestSet(e.target.value)}>
+                      <option value="">First set</option>
+                      {destinations
+                        .find((d) => d.id === destCol)
+                        ?.sets.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      <option value="__new">New set…</option>
+                    </select>
+                  </div>
+                )}
+                {destSet === "__new" && (
+                  <div>
+                    <label className="label">New set name</label>
+                    <input className="input !w-44" value={newSetName} onChange={(e) => setNewSetName(e.target.value)} placeholder="Edited" />
+                  </div>
+                )}
+                <p className="text-xs text-neutral-400 basis-full">
+                  The original is never changed. The edited copy is added to the chosen gallery and set.
+                </p>
               </div>
 
               <div className="flex items-center gap-3">
@@ -516,14 +665,213 @@ export default function EditorClient({ collections }: { collections: Col[] }) {
                       .join(" · ")}
                   </span>
                 )}
-                {savedName && <span className="text-sm text-green-600">Saved as {savedName} ✓</span>}
+                {savedName && (
+                  <span className="text-sm text-green-600">
+                    Saved as {savedName}
+                    {savedWhere ? (
+                      <>
+                        {" "}to{" "}
+                        <a className="underline" href={`/collections/${savedWhere.collectionId}`}>
+                          {savedWhere.label}
+                        </a>
+                      </>
+                    ) : null}{" "}
+                    ✓
+                  </span>
+                )}
                 {error && <span className="text-sm text-red-600">{error}</span>}
               </div>
             </div>
           )}
         </div>
       </div>
+
+      <CullingPanel
+        collections={collections}
+        aiConnected={aiConnected}
+        onOpen={(cId, p) => {
+          setColId(cId);
+          setPhoto(p);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+      />
     </div>
+  );
+}
+
+// --------------------------------------------------------------- AI culling
+type CullRow = {
+  id: string; filename: string; url: string; mediaType: string; starred: boolean;
+  score: number; verdict: string; group: number; groupBest: boolean; issues: string[];
+  brightness: number; contrast: number; sharpness: number;
+};
+type AiCall = { verdict: "pick" | "drop" | "keep"; reason: string };
+
+function CullingPanel({
+  collections,
+  aiConnected,
+  onOpen,
+}: {
+  collections: Col[];
+  aiConnected: boolean;
+  onOpen: (collectionId: string, photo: Photo) => void;
+}) {
+  const [cId, setCId] = useState(collections[0]?.id ?? "");
+  const [busy, setBusy] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [rows, setRows] = useState<CullRow[] | null>(null);
+  const [calls, setCalls] = useState<Record<string, AiCall>>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [note, setNote] = useState("");
+  const [applied, setApplied] = useState("");
+
+  async function analyse() {
+    setBusy(true);
+    setNote("");
+    setApplied("");
+    setCalls({});
+    const res = await fetch("/api/editor/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collectionId: cId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) return setNote(data.error || "Analysis failed.");
+    const list = data.photos as CullRow[];
+    setRows(list);
+    setSelected(new Set(list.filter((r) => r.verdict === "keeper" || r.groupBest).map((r) => r.id)));
+    setNote(`Analysed ${list.length} photos in ${data.groups} groups (near duplicates share a group; the best frame of each group is marked). Nothing is changed until you star the picks.`);
+  }
+
+  async function aiCull() {
+    setAiBusy(true);
+    setNote("");
+    const res = await fetch("/api/editor/ai-cull", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collectionId: cId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setAiBusy(false);
+    if (!res.ok) {
+      if (data.aiConnected === false) return setNote("AI is not connected yet (the server needs its Gemini key). The on device analysis above still works: it scores sharpness, exposure and duplicates.");
+      return setNote(data.error || "AI culling failed.");
+    }
+    const aiCalls = data.calls as Record<string, AiCall>;
+    setCalls(aiCalls);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const [id, call] of Object.entries(aiCalls)) {
+        if (call.verdict === "pick") next.add(id);
+        if (call.verdict === "drop") next.delete(id);
+      }
+      return next;
+    });
+    setNote("AI culling applied its calls on top of the analysis: picks were selected, drops were deselected. Review before starring.");
+  }
+
+  async function applyStars() {
+    setBusy(true);
+    const res = await fetch("/api/editor/cull-apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ star: Array.from(selected) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) return setNote(data.error || "Could not star the picks.");
+    setApplied(`Starred ${data.changed} photos. Starred photos show first in your gallery tools.`);
+  }
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const col = collections.find((c) => c.id === cId);
+  return (
+    <section className="card p-5 mt-8">
+      <div className="flex flex-wrap items-end gap-3 mb-2">
+        <div>
+          <h2 className="font-medium">AI culling</h2>
+          <p className="text-sm text-neutral-500 mt-0.5 max-w-xl">
+            Analyse a collection for sharpness, exposure and near duplicates, then let AI pick the strongest
+            frame of each moment. You confirm every star.
+          </p>
+        </div>
+        <span className="flex-1" />
+        <select className="input !w-56" value={cId} onChange={(e) => { setCId(e.target.value); setRows(null); }}>
+          {collections.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+        <button className="btn-secondary" onClick={analyse} disabled={busy || !cId}>{busy ? "Analysing…" : "Analyse collection"}</button>
+        <button className="btn-primary" onClick={aiCull} disabled={aiBusy || !rows} title={aiConnected ? "" : "AI is not connected yet"}>
+          {aiBusy ? "AI is culling…" : "Ask AI to cull"}
+        </button>
+      </div>
+      {!aiConnected ? (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-3">
+          AI is not connected yet, so AI culling and AI suggestions are waiting on the server Gemini key. The on
+          device analysis (scores, duplicate groups, best frames) works fully without it.
+        </p>
+      ) : null}
+      {note ? <p className="text-sm text-neutral-600 mb-3">{note}</p> : null}
+      {applied ? <p className="text-sm text-emerald-700 mb-3">{applied}</p> : null}
+      {rows ? (
+        <>
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 max-h-[52vh] overflow-y-auto pr-1">
+            {rows.map((r) => {
+              const call = calls[r.id];
+              const isSel = selected.has(r.id);
+              return (
+                <div key={r.id} className={`relative rounded overflow-hidden border ${isSel ? "border-violet-600 ring-1 ring-violet-600" : "border-neutral-200"}`}>
+                  <button className="block w-full" onClick={() => toggle(r.id)} title={`${r.filename}: click to ${isSel ? "deselect" : "select"} for starring`}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={r.url} alt={r.filename} className="w-full aspect-square object-cover" loading="lazy" />
+                  </button>
+                  <div className="absolute top-1 left-1 flex gap-1">
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${r.score >= 65 ? "bg-emerald-600 text-white" : r.score >= 40 ? "bg-amber-500 text-white" : "bg-red-600 text-white"}`}>{r.score}</span>
+                    {r.groupBest ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral-900 text-white">Best of G{r.group + 1}</span> : null}
+                  </div>
+                  {call ? (
+                    <span className={`absolute top-1 right-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${call.verdict === "pick" ? "bg-violet-700 text-white" : call.verdict === "drop" ? "bg-red-700 text-white" : "bg-neutral-700 text-white"}`} title={call.reason}>
+                      AI: {call.verdict}
+                    </span>
+                  ) : null}
+                  <div className="px-1.5 py-1 bg-white">
+                    <p className="text-[10px] text-neutral-500 truncate">{r.filename}</p>
+                    <p className="text-[10px] text-neutral-400 truncate">
+                      {r.verdict}{r.issues.length ? ` · ${r.issues.join(", ")}` : ""}{call?.reason ? ` · ${call.reason}` : ""}
+                    </p>
+                    <button
+                      className="text-[10px] underline text-neutral-500"
+                      onClick={() => {
+                        const p = col?.photos.find((x) => x.id === r.id);
+                        if (p) onOpen(cId, p);
+                      }}
+                    >
+                      Open in editor
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-3 mt-4">
+            <button className="btn-primary" onClick={applyStars} disabled={busy || selected.size === 0}>
+              Star the selected picks ({selected.size})
+            </button>
+            <span className="text-xs text-neutral-400">Starring marks the frames you will deliver first. Rejects are never deleted by culling.</span>
+          </div>
+        </>
+      ) : null}
+    </section>
   );
 }
 

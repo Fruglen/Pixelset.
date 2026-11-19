@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { templateById } from "./templates";
 import { slugify } from "./utils";
+import { publishSite } from "./site-publish";
 
 // Create a website for a user from a template bundle.
 export async function createWebsiteForUser(userId: string, opts: { slug: string; templateId: string; logoText: string }) {
@@ -28,10 +29,13 @@ export async function createWebsiteForUser(userId: string, opts: { slug: string;
   });
 
   await buildTemplatePages(website.id, template.id);
+  // A brand new site goes live as built; from then on edits are drafts until published.
+  await publishSite(website.id);
   return website;
 }
 
-// Replace the page set with a template's bundle (blog posts are a separate
+// Replace the DRAFT page set with a template's bundle (the live site keeps its
+// published snapshot until the photographer publishes; blog posts are a separate
 // table and survive; SEO fields are preserved for pages of the same type).
 export async function applyTemplateToWebsite(websiteId: string, templateId: string) {
   const template = templateById(templateId);
@@ -71,7 +75,7 @@ async function buildTemplatePages(
         title: page.title,
         slug: page.slug,
         order,
-        visible: true,
+        visible: page.visible ?? true,
         blocks: JSON.stringify(page.blocks),
         seoTitle: seo?.seoTitle ?? "",
         seoDescription: seo?.seoDescription ?? "",

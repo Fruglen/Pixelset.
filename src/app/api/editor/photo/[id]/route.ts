@@ -17,16 +17,20 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   });
   if (!photo) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  // Night build: RAW photos are edited through their JPEG preview; the RAW
+  // original itself is never touched (saving produces a JPEG copy).
+  const srcUrl = photo.mediaType === "RAW" ? photo.posterUrl : photo.url;
+  if (!srcUrl) return NextResponse.json({ error: "This RAW file has no preview to edit" }, { status: 400 });
   let buffer: Buffer;
-  if (!photo.isExternal && photo.url.startsWith("/uploads/")) {
+  if (!photo.isExternal && srcUrl.startsWith("/uploads/")) {
     try {
-      buffer = await readFile(path.join(process.cwd(), "public", photo.url));
+      buffer = await readFile(path.join(process.cwd(), "public", srcUrl));
     } catch {
       return NextResponse.json({ error: "File unavailable" }, { status: 404 });
     }
   } else {
     try {
-      const res = await fetch(photo.url);
+      const res = await fetch(srcUrl);
       if (!res.ok) throw new Error();
       buffer = Buffer.from(await res.arrayBuffer());
     } catch {

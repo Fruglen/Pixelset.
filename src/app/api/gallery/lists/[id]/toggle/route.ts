@@ -9,6 +9,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     include: { favorites: true },
   });
   if (!list) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const col = await db.collection.findUnique({ where: { id: list.collectionId }, select: { favoritesEnabled: true } });
+  if (!col?.favoritesEnabled) return NextResponse.json({ error: "Favorites are turned off for this gallery" }, { status: 403 });
+  if (list.submittedAt) return NextResponse.json({ error: `“${list.name}” was already sent to the photographer. Ask them to reopen it to make changes.` }, { status: 400 });
   const access = readGalleryAccess(list.collectionId);
   if (!access.email || access.email !== list.clientEmail) {
     return NextResponse.json({ error: "This list belongs to another client" }, { status: 403 });

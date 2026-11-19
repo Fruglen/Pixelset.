@@ -44,7 +44,7 @@ export default async function DashboardHome() {
     <div>
       <h1 className="font-display text-2xl mb-6">Welcome back, {user.name.split(" ")[0]}</h1>
 
-      <div className="grid grid-cols-3 gap-4 mb-10">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
         <div className="card p-5">
           <p className="text-xs uppercase tracking-wide text-neutral-500">Collections</p>
           <p className="text-3xl font-display mt-1">{collectionCount}</p>
@@ -59,8 +59,8 @@ export default async function DashboardHome() {
         </div>
       </div>
 
-      <div className="grid grid-cols-5 gap-8">
-        <section className="col-span-3">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 [&>*]:min-w-0">
+        <section className="lg:col-span-3">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
               Recent collections
@@ -97,7 +97,7 @@ export default async function DashboardHome() {
           </div>
         </section>
 
-        <section className="col-span-2">
+        <section className="lg:col-span-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500 mb-3">
             Latest activity
           </h2>

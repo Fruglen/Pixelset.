@@ -22,7 +22,9 @@ export default function LoginPage() {
     });
     setBusy(false);
     if (res.ok) {
-      router.push("/dashboard");
+      // Phase 5B: return to a deep link (e.g. the phone upload screen) after sign in.
+      const next = new URLSearchParams(window.location.search).get("next") || "";
+      router.push(/^\/(?!\/)/.test(next) ? next : "/dashboard");
       router.refresh();
     } else {
       const data = await res.json().catch(() => ({}));

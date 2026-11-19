@@ -2,10 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { slugify } from "@/lib/utils";
+import { planFor, GALLERY_LIMITS, capMessage, tierLabel } from "@/lib/plans";
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Night build (Mobile App): the researched plan limit is real here, the
+  // Free gallery plan includes 3 apps and paid plans are unlimited.
+  const plan = await planFor(user.id);
+  const limit = GALLERY_LIMITS[plan.gallery].mobileApps;
+  if (Number.isFinite(limit)) {
+    const used = await db.mobileApp.count({ where: { userId: user.id } });
+    if (used >= limit) {
+      return NextResponse.json({ error: capMessage("mobile gallery apps", limit, tierLabel("gallery", plan.gallery)) }, { status: 403 });
+    }
+  }
 
   const body = await req.json();
   const collection = await db.collection.findFirst({

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { parseAvailability } from "@/lib/availability";
+import { STUDIO_LIMITS, planFor, tierLabel } from "@/lib/plans";
 
 async function own(id: string) {
   const user = await getCurrentUser();
@@ -19,8 +21,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   for (const k of ["description", "coverUrl", "location", "cancellationPolicy"] as const) {
     if (typeof body[k] === "string") data[k] = body[k];
   }
-  if (body.locationType === "IN_PERSON" || body.locationType === "ZOOM") data.locationType = body.locationType;
-  for (const k of ["durationMin", "bufferMin"] as const) {
+  if (["IN_PERSON", "ZOOM", "VIDEO", "PHONE"].includes(body.locationType)) data.locationType = body.locationType;
+  if (typeof body.meetingLink === "string") {
+    const link = body.meetingLink.trim();
+    if (link && !/^https?:\/\//.test(link)) return NextResponse.json({ error: "Meeting link must start with https://" }, { status: 400 });
+    data.meetingLink = link;
+  }
+  // Phase 5B: availability rules, normalised through the parser so only valid rules are stored
+  if (body.availability !== undefined) {
+    data.availability = JSON.stringify(parseAvailability(typeof body.availability === "string" ? body.availability : JSON.stringify(body.availability)));
+  }
+  if (typeof body.remindersEnabled === "boolean") data.remindersEnabled = body.remindersEnabled;
+  if (body.reminderHoursBefore !== undefined) data.reminderHoursBefore = Math.min(336, Math.max(1, Math.round(Number(body.reminderHoursBefore) || 24)));
+  for (const k of ["durationMin", "bufferMin", "bufferBeforeMin"] as const) {
     if (body[k] !== undefined) data[k] = Math.max(k === "durationMin" ? 5 : 0, Math.round(Number(body[k]) || 0));
   }
   if (body.priceCents !== undefined) data.priceCents = Math.max(0, Math.round(Number(body.priceCents) || 0));
@@ -28,6 +41,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const r = Number(body.taxRate);
     if (!isNaN(r) && r >= 0 && r <= 100) data.taxRate = r;
   }
+  // Phase 5B platform: retainers at booking and manual approval need Studio Manager Pro.
+  const plan = await planFor(ctx.user.id);
+  const limits = STUDIO_LIMITS[plan.studio];
+  const locked = `needs Studio Manager Pro (your plan is ${tierLabel("studio", plan.studio)}). Upgrade in Settings > Plan.`;
+  if (["PERCENT", "FIXED", "FULL"].includes(body.retainerType) && !limits.retainers) {
+    return NextResponse.json({ error: `Payment at booking ${locked}` }, { status: 403 });
+  }
+  if (body.requiresApproval === true && !limits.manualApproval) {
+    return NextResponse.json({ error: `Manual approval ${locked}` }, { status: 403 });
+  }
+  if (typeof body.requiresApproval === "boolean") data.requiresApproval = body.requiresApproval;
   if (["NONE", "PERCENT", "FIXED", "FULL"].includes(body.retainerType)) data.retainerType = body.retainerType;
   if (body.retainerValue !== undefined) data.retainerValue = Math.max(0, Math.round(Number(body.retainerValue) || 0));
   for (const k of ["active", "published", "showBookedSpots", "waitlistEnabled"] as const) {

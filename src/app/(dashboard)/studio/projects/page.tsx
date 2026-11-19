@@ -2,12 +2,16 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { ProjectsBoard } from "./projects-board";
+import { syncWebsiteLeads } from "@/lib/studio-flow";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProjectsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+
+  // Night build: website form submissions open Inquiry cards here too.
+  await syncWebsiteLeads(user.id).catch(() => 0);
 
   const [projects, contacts] = await Promise.all([
     db.project.findMany({

@@ -1,11 +1,15 @@
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import CollectionsClient from "./collections-client";
+import { GallerySubnav } from "./subnav";
+import { processExpiryReminders } from "@/lib/expiry-reminders";
 
 export const dynamic = "force-dynamic";
 
 export default async function CollectionsPage() {
   const user = (await getCurrentUser())!;
+  // Phase 5B: due expiry reminder emails go out lazily when the dashboard loads.
+  await processExpiryReminders(user.id).catch(() => []);
   const [collections, folders, presets] = await Promise.all([
     db.collection.findMany({
       where: { userId: user.id },
@@ -25,6 +29,7 @@ export default async function CollectionsPage() {
     slug: c.slug,
     status: c.status,
     folderId: c.folderId,
+    starred: c.starred,
     eventDate: c.eventDate ? c.eventDate.toISOString() : null,
     expiresAt: c.expiresAt ? c.expiresAt.toISOString() : null,
     photoCount: c._count.photos,
@@ -32,10 +37,14 @@ export default async function CollectionsPage() {
   }));
 
   return (
+    <>
+    <GallerySubnav />
     <CollectionsClient
+      defaultPresetId={user.galleryDefaultPresetId}
       collections={items}
       folders={folders.map((f) => ({ id: f.id, name: f.name }))}
       presets={presets.map((p) => ({ id: p.id, name: p.name }))}
     />
+    </>
   );
 }

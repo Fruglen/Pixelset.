@@ -18,6 +18,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (typeof body[k] === "string") data[k] = body[k];
   }
   if (typeof body.email === "string") data.email = body.email.trim().toLowerCase();
+  if (body.state === "LEAD" || body.state === "CLIENT") data.state = body.state;
   await db.contact.update({ where: { id: contact.id }, data });
   return NextResponse.json({ ok: true });
 }

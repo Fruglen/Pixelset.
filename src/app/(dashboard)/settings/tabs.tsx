@@ -5,9 +5,11 @@ import { usePathname } from "next/navigation";
 
 const TABS = [
   { href: "/settings", label: "Account" },
+  { href: "/settings/gallery", label: "Gallery" },
   { href: "/settings/team", label: "Team" },
   { href: "/settings/emails", label: "Email Templates" },
   { href: "/settings/plan", label: "Plan" },
+  { href: "/settings/security", label: "Security" },
 ];
 
 export function SettingsTabs() {

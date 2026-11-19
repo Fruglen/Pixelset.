@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 function money(cents: number) {
@@ -21,11 +21,14 @@ interface BookingRow {
   contactName: string;
   hasInvoice: boolean;
   hasContract: boolean;
+  clientToken: string;
+  approvalState?: string;
 }
 
 const STATUS_COLORS: Record<string, string> = {
   CONFIRMED: "bg-emerald-100 text-emerald-700",
   PENDING: "bg-amber-100 text-amber-700",
+  AWAITING_CLIENT: "bg-sky-100 text-sky-700",
   WAITLIST: "bg-purple-100 text-purple-700",
   CANCELLED: "bg-neutral-100 text-neutral-400 line-through",
   COMPLETED: "bg-neutral-200 text-neutral-600",
@@ -50,6 +53,19 @@ export function CalendarClient({
 }) {
   const router = useRouter();
   const [showAdd, setShowAdd] = useState(openAdd);
+  // Phase 5B platform: manual approval of booking requests
+  async function decide(id: string, decision: "approve" | "decline") {
+    const message = window.prompt(decision === "approve" ? "Optional note to the client" : "Optional reason for the client") ?? "";
+    const res = await fetch(`/api/studio/bookings/${id}/approval`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision, message }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) window.alert(data.error || "Could not update the booking");
+    else window.alert(`${decision === "approve" ? "Approved" : "Declined"}. Client email: ${data.delivery}`);
+    router.refresh();
+  }
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
@@ -63,7 +79,30 @@ export function CalendarClient({
     durationMin: "60",
     price: "",
     notes: "",
+    slotId: "",
+    mode: "CONFIRMED",
+    sendConfirmation: true,
   });
+  const [force, setForce] = useState(false);
+  const [conflict, setConflict] = useState(false);
+  const [openDays, setOpenDays] = useState<{ date: string; slots: string[] }[]>([]);
+  const [miniDates, setMiniDates] = useState<{ date: string; slots: { id: string; startsAt: string; left: number }[] }[]>([]);
+  const pickedType = sessionTypes.find((t) => t.id === form.sessionTypeId);
+
+  // Phase 5B: live open times from the availability engine for the chosen session type
+  useEffect(() => {
+    setOpenDays([]);
+    setMiniDates([]);
+    if (!form.sessionTypeId) return;
+    const from = form.date || new Date().toISOString().slice(0, 10);
+    fetch(`/api/studio/slots?typeId=${form.sessionTypeId}&from=${from}&days=14`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.mini) setMiniDates(d.dates ?? []);
+        else setOpenDays(d.days ?? []);
+      })
+      .catch(() => null);
+  }, [form.sessionTypeId, form.date]);
 
   const [year, mo] = month.split("-").map(Number);
   const first = new Date(year, mo - 1, 1);
@@ -96,14 +135,23 @@ export function CalendarClient({
         clientEmail: form.clientEmail,
         date: form.date,
         time: form.time,
+        slotId: form.slotId || undefined,
         durationMin: parseInt(form.durationMin) || 60,
         priceCents: Math.round((parseFloat(form.price) || 0) * 100),
         notes: form.notes,
+        mode: form.mode,
+        sendConfirmation: form.sendConfirmation,
+        force,
       }),
     });
     const data = await res.json().catch(() => ({}));
     setBusy(false);
-    if (!res.ok) return setError(data.error ?? "Could not create the booking");
+    if (!res.ok) {
+      setConflict(!!data.conflict);
+      return setError(data.error ?? "Could not create the booking");
+    }
+    setConflict(false);
+    setForce(false);
     setShowAdd(false);
     router.refresh();
   }
@@ -243,16 +291,27 @@ export function CalendarClient({
                       {b.hasContract ? " · contract" : ""}
                     </p>
                     {b.notes ? <p className="text-xs text-neutral-400 mt-1">{b.notes}</p> : null}
+                    {b.approvalState === "REQUESTED" ? (
+                      <div className="mt-2 flex items-center gap-2 flex-wrap">
+                        <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-700">Booking request, needs your approval</span>
+                        <button className="btn-primary !px-2.5 !py-1 text-xs" onClick={() => decide(b.id, "approve")}>
+                          Approve
+                        </button>
+                        <button className="btn-secondary !px-2.5 !py-1 text-xs" onClick={() => decide(b.id, "decline")}>
+                          Decline
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <select
                       className="input !w-auto !py-1 text-xs"
                       value={b.status}
                       onChange={(e) => patchBooking(b.id, { status: e.target.value })}
                     >
-                      {["PENDING", "CONFIRMED", "WAITLIST", "COMPLETED", "CANCELLED"].map((s) => (
+                      {["PENDING", "AWAITING_CLIENT", "CONFIRMED", "WAITLIST", "COMPLETED", "CANCELLED"].map((s) => (
                         <option key={s} value={s}>
-                          {s.charAt(0) + s.slice(1).toLowerCase()}
+                          {s === "AWAITING_CLIENT" ? "Awaiting client" : s.charAt(0) + s.slice(1).toLowerCase()}
                         </option>
                       ))}
                     </select>
@@ -269,6 +328,11 @@ export function CalendarClient({
                       <button className="btn-secondary !px-2.5 !py-1 text-xs" onClick={() => invoiceBooking(b.id)}>
                         Invoice
                       </button>
+                    ) : null}
+                    {b.clientToken ? (
+                      <a className="text-xs underline text-neutral-500" href={`/book/manage/${b.clientToken}`} target="_blank" rel="noreferrer">
+                        Client page
+                      </a>
                     ) : null}
                     <button className="text-xs text-red-600 underline" onClick={() => removeBooking(b.id)}>
                       Delete
@@ -340,18 +404,109 @@ export function CalendarClient({
                   </>
                 ) : null}
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              {pickedType?.isMini ? (
                 <div>
-                  <label className="label">Date</label>
-                  <input type="date" className="input" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                  <label className="label">Mini session spot</label>
+                  {miniDates.length === 0 ? <p className="text-sm text-neutral-500">No upcoming spots on this mini session.</p> : null}
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {miniDates.map((d) => (
+                      <div key={d.date}>
+                        <p className="text-xs text-neutral-500 mb-1">{d.date}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {d.slots.map((sl) => (
+                            <button
+                              key={sl.id}
+                              type="button"
+                              disabled={sl.left <= 0}
+                              onClick={() => setForm({ ...form, slotId: sl.id })}
+                              className={`text-xs border rounded px-2 py-1 ${form.slotId === sl.id ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-300"} ${sl.left <= 0 ? "opacity-40" : ""}`}
+                            >
+                              {fmtTime(sl.startsAt)} {sl.left <= 0 ? "full" : ""}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <label className="label">Time</label>
-                  <input type="time" className="input" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
-                </div>
-                <div>
-                  <label className="label">Duration (min)</label>
-                  <input className="input" value={form.durationMin} onChange={(e) => setForm({ ...form, durationMin: e.target.value })} />
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="label">Date</label>
+                      <input type="date" className="input" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="label">Time</label>
+                      <input type="time" className="input" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
+                    </div>
+                    {!form.sessionTypeId ? (
+                      <div>
+                        <label className="label">Duration (min)</label>
+                        <input className="input" value={form.durationMin} onChange={(e) => setForm({ ...form, durationMin: e.target.value })} />
+                      </div>
+                    ) : null}
+                  </div>
+                  {form.sessionTypeId && form.date ? (
+                    <div>
+                      <label className="label">Open times on this date</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(openDays.find((d) => d.date === form.date)?.slots ?? []).map((iso) => {
+                          const dt = new Date(iso);
+                          const hm = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
+                          return (
+                            <button
+                              key={iso}
+                              type="button"
+                              onClick={() => setForm({ ...form, time: hm })}
+                              className={`text-xs border rounded px-2 py-1 ${form.time === hm ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-300"}`}
+                            >
+                              {fmtTime(iso)}
+                            </button>
+                          );
+                        })}
+                        {(openDays.find((d) => d.date === form.date)?.slots ?? []).length === 0 ? (
+                          <span className="text-xs text-neutral-400">No open times on this date for this session type.</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                  {conflict ? (
+                    <label className="flex items-center gap-2 text-sm text-amber-700">
+                      <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
+                      Book anyway, outside availability or overlapping another booking
+                    </label>
+                  ) : null}
+                </>
+              )}
+              <div>
+                <label className="label">Booking status</label>
+                <div className="space-y-1.5 text-sm">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input type="radio" className="mt-1" checked={form.mode === "CONFIRMED"} onChange={() => setForm({ ...form, mode: "CONFIRMED" })} />
+                    <span>
+                      Confirmed now
+                      <label className="flex items-center gap-1.5 text-xs text-neutral-500 mt-0.5">
+                        <input
+                          type="checkbox"
+                          checked={form.sendConfirmation}
+                          disabled={form.mode !== "CONFIRMED"}
+                          onChange={(e) => setForm({ ...form, sendConfirmation: e.target.checked })}
+                        />
+                        Email the client a confirmation
+                      </label>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input type="radio" className="mt-1" checked={form.mode === "AWAITING_CLIENT"} onChange={() => setForm({ ...form, mode: "AWAITING_CLIENT" })} />
+                    <span>
+                      Awaiting client
+                      <span className="block text-xs text-neutral-500">
+                        Holds the time and emails the client a link to answer the questionnaire, sign the contract and pay the
+                        retainer. It flips to Confirmed when they finish.
+                      </span>
+                    </span>
+                  </label>
                 </div>
               </div>
               {!form.sessionTypeId ? (

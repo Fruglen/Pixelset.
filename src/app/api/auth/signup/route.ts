@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createSession, hashPassword } from "@/lib/auth";
+import { createWebsiteForUser } from "@/lib/site-service";
+import { DEFAULT_BILLING, serializePlan } from "@/lib/plans";
 
 export async function POST(req: NextRequest) {
   const { name, businessName, email, password } = await req.json();
@@ -22,8 +24,25 @@ export async function POST(req: NextRequest) {
       businessName: typeof businessName === "string" ? businessName.trim() : "",
       watermarkText: typeof businessName === "string" && businessName.trim() ? businessName.trim() : name.trim(),
       passwordHash: hashPassword(password),
+      // Night build (Pricing lane): new accounts start on the Free plans, so
+      // the researched caps and paywall unlocks are real from day one. The
+      // seeded demo account keeps its top tiers.
+      plan: serializePlan({ gallery: "free", website: "free", studio: "free", billing: DEFAULT_BILLING, security: { ipAllowlist: [] } }),
     },
   });
+  // Phase 5B platform: sign up issues a free subdomain right away. A starter
+  // website (default template, published) reserves <slug>.<SITE_ROOT_DOMAIN>,
+  // which the host based routing in src/middleware.ts serves. The website setup
+  // checklist then asks the photographer to pick their template.
+  let subdomain = "";
+  try {
+    const label = (typeof businessName === "string" && businessName.trim()) || name.trim();
+    const site = await createWebsiteForUser(user.id, { slug: label, templateId: "vienna", logoText: label });
+    subdomain = site.slug;
+    await db.website.update({ where: { id: site.id }, data: { templateChosen: false } });
+  } catch {
+    // the account still works without a site; the Website area offers to create one
+  }
   await createSession(user.id);
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, subdomain });
 }

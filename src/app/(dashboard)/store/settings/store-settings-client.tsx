@@ -3,34 +3,47 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { STORE_CURRENCIES } from "@/lib/store-rates";
+
 type Profile = {
-  taxEnabled: boolean;
-  taxRate: number;
+  storeOpen: boolean;
+  closedMessage: string;
   currency: string;
+  cardPayments: boolean;
+  offlinePayments: boolean;
+  offlineInstructions: string;
   digitalLicense: string;
   termsOfSale: string;
   labEnabled: boolean;
   labName: string;
   labEmail: string;
   labEndpoint: string;
+  whiteLabelPackaging: boolean;
 };
 
 export default function StoreSettingsClient({
   profile,
   labKeyPresent,
+  webhookPresent,
 }: {
   profile: Profile;
   labKeyPresent: boolean;
+  webhookPresent: boolean;
 }) {
   const router = useRouter();
-  const [taxEnabled, setTaxEnabled] = useState(profile.taxEnabled);
-  const [taxRate, setTaxRate] = useState(String(profile.taxRate));
+  const [storeOpen, setStoreOpen] = useState(profile.storeOpen);
+  const [closedMessage, setClosedMessage] = useState(profile.closedMessage);
+  const [currency, setCurrency] = useState(profile.currency);
+  const [cardPayments, setCardPayments] = useState(profile.cardPayments);
+  const [offlinePayments, setOfflinePayments] = useState(profile.offlinePayments);
+  const [offlineInstructions, setOfflineInstructions] = useState(profile.offlineInstructions);
   const [digitalLicense, setDigitalLicense] = useState(profile.digitalLicense);
   const [termsOfSale, setTermsOfSale] = useState(profile.termsOfSale);
   const [labEnabled, setLabEnabled] = useState(profile.labEnabled);
   const [labName, setLabName] = useState(profile.labName);
   const [labEmail, setLabEmail] = useState(profile.labEmail);
   const [labEndpoint, setLabEndpoint] = useState(profile.labEndpoint);
+  const [whiteLabelPackaging, setWhiteLabelPackaging] = useState(profile.whiteLabelPackaging);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
 
@@ -44,14 +57,19 @@ export default function StoreSettingsClient({
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        taxEnabled,
-        taxRate: parseFloat(taxRate) || 0,
+        storeOpen,
+        closedMessage,
+        currency,
+        cardPayments,
+        offlinePayments,
+        offlineInstructions,
         digitalLicense,
         termsOfSale,
         labEnabled,
         labName,
         labEmail,
         labEndpoint,
+        whiteLabelPackaging,
       }),
     });
     if (!res.ok) {
@@ -65,21 +83,57 @@ export default function StoreSettingsClient({
   return (
     <form onSubmit={save} className="max-w-2xl space-y-6">
       <div className="card p-5 space-y-3">
-        <h2 className="font-medium">Automatic tax</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium">Store status</h2>
+          <span className={`text-xs px-2 py-1 rounded-full ${storeOpen ? "bg-emerald-50 text-emerald-700" : "bg-neutral-100 text-neutral-500"}`}>
+            {storeOpen ? "Open" : "Closed"}
+          </span>
+        </div>
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={taxEnabled} onChange={(e) => setTaxEnabled(e.target.checked)} />
-          Collect tax automatically on store orders (prints and digital)
+          <input type="checkbox" checked={storeOpen} onChange={(e) => setStoreOpen(e.target.checked)} />
+          Store is open, clients can buy from galleries with a price sheet
         </label>
-        {taxEnabled && (
-          <div className="max-w-40">
-            <label className="label">Tax rate %</label>
-            <input className="input" inputMode="decimal" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} />
+        {!storeOpen && (
+          <div>
+            <label className="label">Message shown in galleries while closed</label>
+            <input className="input" value={closedMessage} onChange={(e) => setClosedMessage(e.target.value)} placeholder="The store is closed for the holidays, back January 5." />
           </div>
         )}
-        <p className="text-xs text-neutral-400">
-          Pixieset&rsquo;s &ldquo;auto-pilot&rdquo; local tax lookup is simulated with a single configurable rate.
-          Currency: {profile.currency}.
+        <div className="max-w-48">
+          <label className="label">Store currency</label>
+          <select className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+            {STORE_CURRENCIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="text-xs text-neutral-400">Prices in the gallery storefront, checkout, and client emails are shown in this currency.</p>
+      </div>
+
+      <div className="card p-5 space-y-3">
+        <h2 className="font-medium">Payment methods</h2>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={cardPayments} onChange={(e) => setCardPayments(e.target.checked)} />
+          Card payments at checkout
+        </label>
+        <p className="text-xs text-neutral-400 -mt-1 ml-6">
+          Card checkout is mocked per the owner&rsquo;s payments exclusion: the order is recorded as paid and no card is charged.
         </p>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={offlinePayments} onChange={(e) => setOfflinePayments(e.target.checked)} />
+          Offline payment (cash, bank transfer, check)
+        </label>
+        {offlinePayments && (
+          <div className="ml-6">
+            <label className="label">Payment instructions shown at checkout and in the confirmation email</label>
+            <textarea className="input h-20" value={offlineInstructions} onChange={(e) => setOfflineInstructions(e.target.value)} placeholder="Send an e-transfer to studio@example.com with your order number." />
+            <p className="text-xs text-neutral-400 mt-1">
+              Offline orders wait as Awaiting payment. Download links and lab orders are released when you mark the order paid.
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="card p-5 space-y-3">
@@ -117,6 +171,21 @@ export default function StoreSettingsClient({
           {labKeyPresent ? " (key detected)" : " (key not set)"}. Otherwise payloads stay queued on the order,
           clearly marked as not sent.
         </p>
+        <p className="text-xs text-neutral-400">
+          Lab status updates: the lab POSTs to <span className="font-mono">/api/store/lab-webhook</span> with the
+          LAB_WEBHOOK_SECRET bearer token{webhookPresent ? " (secret detected)" : ", which is not set, so the webhook is Not connected"}.
+          Until then, move lab orders through the timeline by hand on the order page.
+        </p>
+        <div className="border-t border-neutral-100 pt-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={whiteLabelPackaging} onChange={(e) => setWhiteLabelPackaging(e.target.checked)} />
+            White label packaging
+          </label>
+          <p className="text-xs text-neutral-400 mt-1">
+            Lab shipments carry no Pixelset or lab branding, only your studio name on the packing label. The
+            choice is written into every lab order payload.
+          </p>
+        </div>
       </div>
 
       <div className="card p-5 space-y-3">

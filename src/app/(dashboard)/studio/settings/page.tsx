@@ -1,11 +1,17 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { getStudioProfile } from "@/lib/studio";
+import { processorStatus } from "@/lib/processors";
+import { googleOAuthConfigured } from "@/lib/google-calendar";
 import { StudioSettings } from "./studio-settings";
 
 export const dynamic = "force-dynamic";
 
-export default async function StudioSettingsPage() {
+export default async function StudioSettingsPage({
+  searchParams,
+}: {
+  searchParams?: { google?: string };
+}) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   const p = await getStudioProfile(user.id);
@@ -31,7 +37,13 @@ export default async function StudioSettingsPage() {
         showPaypal: p.showPaypal,
         showManual: p.showManual,
         googleCalendarSync: p.googleCalendarSync,
+        googleEmail: p.googleEmail,
+        googleSyncAt: p.googleSyncAt ? p.googleSyncAt.toISOString() : null,
+        googleConnected: Boolean(p.googleRefreshToken),
+        googleConfigured: googleOAuthConfigured(),
       }}
+      processors={processorStatus()}
+      googleNote={searchParams?.google ?? ""}
     />
   );
 }

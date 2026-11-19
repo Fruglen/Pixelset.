@@ -9,6 +9,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!access.email || access.email !== list.clientEmail) {
     return NextResponse.json({ error: "This list belongs to another client" }, { status: 403 });
   }
+  if (list.submittedAt) {
+    return NextResponse.json({ error: "This list was already sent to the photographer" }, { status: 400 });
+  }
   const { photoId, note } = await req.json();
   const favorite = await db.favorite.findFirst({ where: { listId: list.id, photoId } });
   if (!favorite) return NextResponse.json({ error: "Photo is not in this list" }, { status: 404 });

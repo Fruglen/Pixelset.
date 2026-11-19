@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { permissionError } from "@/lib/team";
 import { PRODUCT_CATEGORIES } from "@/lib/store";
+import { FRAMEABLE, parseFrames } from "@/lib/store-rates";
+import { packageItemsJson, parsePackageItems } from "@/lib/store-pricing";
 
 async function owned(id: string) {
   const user = await getCurrentUser();
@@ -24,7 +26,26 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (typeof body.selfFulfilled === "boolean") data.selfFulfilled = body.selfFulfilled;
   if (typeof body.active === "boolean") data.active = body.active;
   if ("shippingCents" in body) data.shippingCents = Math.max(0, Math.round(Number(body.shippingCents) || 0));
+  // Night build follow-up: markup pricing + package components.
+  if (body.pricingMode === "MARKUP" || body.pricingMode === "FIXED") data.pricingMode = body.pricingMode;
+  if ("markupPct" in body) data.markupPct = Math.min(1000, Math.max(0, Number(body.markupPct) || 0));
+  if (Array.isArray(body.packageItems)) {
+    const cat = String(data.category ?? product.category);
+    const components = cat === "PACKAGE" ? parsePackageItems(JSON.stringify(body.packageItems)) : [];
+    if (cat === "PACKAGE" && components.length === 0) {
+      return NextResponse.json({ error: "A package needs at least one component product" }, { status: 400 });
+    }
+    data.packageItems = packageItemsJson(components);
+  }
 
+  if (Array.isArray(body.frames)) {
+    const cat = String(data.category ?? product.category);
+    const frames = FRAMEABLE.includes(cat) ? parseFrames(JSON.stringify(body.frames)) : [];
+    if (cat === "FRAMED" && frames.length === 0) {
+      return NextResponse.json({ error: "Framed wall art needs at least one frame option" }, { status: 400 });
+    }
+    data.frameOptions = JSON.stringify(frames);
+  }
   await db.product.update({ where: { id: product.id }, data });
 
   // Full variant replacement when provided (existing order-item snapshots are unaffected).
@@ -38,6 +59,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           productId: product.id,
           name: v.name.trim(),
           priceCents: Math.max(0, Math.round(Number(v.priceCents) || 0)),
+          labCostCents: Math.max(0, Math.round(Number(v.labCostCents) || 0)),
           order: i++,
         },
       });

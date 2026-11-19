@@ -2,12 +2,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { fmtMoney } from "@/lib/studio";
 import { formatDateTime } from "@/lib/utils";
 import { categoryLabel, getStoreProfile } from "@/lib/store";
 import { labConnected, labConnectionNote } from "@/lib/lab";
 import OrderActions from "./order-actions";
 import LabPanel from "./lab-panel";
+import ResendDownloads from "./resend-downloads";
+import { resendConnected } from "@/lib/mailer";
+import MarkPaid from "./mark-paid";
+import { SupportActions } from "./support-actions";
+import { formatStoreMoney, regionName } from "@/lib/store-rates";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +26,11 @@ export default async function OrderDetailPage({ params }: { params: { id: string
     },
   });
   if (!order) notFound();
+  const [payout, events] = await Promise.all([
+    db.storePayout.findUnique({ where: { orderId: order.id } }),
+    db.labOrderEvent.findMany({ where: { labOrderId: { in: order.labOrders.map((l) => l.id) } }, orderBy: { createdAt: "asc" } }),
+  ]);
+  const awaiting = order.paymentStatus === "AWAITING_PAYMENT";
 
   const selfItems = order.items.filter(
     (i) => i.category !== "DIGITAL" && (i.product ? i.product.selfFulfilled : true)
@@ -31,6 +40,7 @@ export default async function OrderDetailPage({ params }: { params: { id: string
     (i) => i.category !== "DIGITAL" && i.product && !i.product.selfFulfilled
   );
   const storeProfile = await getStoreProfile(user.id);
+  const fmtMoney = (c: number) => formatStoreMoney(c, storeProfile.currency);
   const labSettings = {
     labEnabled: storeProfile.labEnabled,
     labName: storeProfile.labName,
@@ -66,12 +76,38 @@ export default async function OrderDetailPage({ params }: { params: { id: string
               <p className="text-sm text-neutral-600 whitespace-pre-line">{order.shippingAddress}</p>
             </>
           )}
+          {order.shippingCountry && (
+            <p className="text-xs text-neutral-400 mt-1">
+              {order.shippingRegion ? `${regionName(order.shippingCountry, order.shippingRegion)}, ` : ""}
+              {order.shippingCountry}
+            </p>
+          )}
+          {order.shippingMethod && <p className="text-xs text-neutral-500 mt-2">Shipping: {order.shippingMethod}</p>}
         </div>
         <div className="card p-4">
           <p className="label">Payment & fulfillment</p>
-          <p className="text-sm">
-            Paid by <span className="font-medium">{order.paymentMethod}</span> (mock payment)
-          </p>
+          {awaiting ? (
+            <div className="space-y-2">
+              <p className="text-sm">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 mr-1">Awaiting payment</span>
+                Offline payment of {fmtMoney(order.totalCents)}
+              </p>
+              <p className="text-xs text-neutral-500">Downloads and lab orders are held until you mark it received.</p>
+              {order.status !== "CANCELLED" && <MarkPaid orderId={order.id} />}
+            </div>
+          ) : (
+            <p className="text-sm">
+              Paid by <span className="font-medium">{order.paymentMethod}</span>
+              {order.paymentMethod === "offline" ? " (received)" : " (mocked per the owner's payments exclusion)"}
+            </p>
+          )}
+          {payout && (
+            <p className="text-xs text-neutral-500 mt-1">
+              Paid to you directly: {fmtMoney(payout.amountCents)},{" "}
+              {payout.status === "PAID" ? "settled" : payout.status === "AWAITING_PAYMENT" ? "collect from the client" : "cancelled"}
+              {order.fulfillment === "MIXED" ? " (self fulfilled and digital share)" : ""}, mocked per the owner&rsquo;s payments exclusion
+            </p>
+          )}
           {order.couponCode && <p className="text-sm text-neutral-600">Coupon: {order.couponCode}</p>}
           {order.giftCardCode && (
             <p className="text-sm text-neutral-600">
@@ -105,6 +141,7 @@ export default async function OrderDetailPage({ params }: { params: { id: string
                   <p className="font-medium">
                     {i.productName}
                     {i.variantName ? `, ${i.variantName}` : ""}
+                    {i.frameName ? `, ${i.frameName}` : ""}
                   </p>
                   <p className="text-xs text-neutral-400">
                     {categoryLabel(i.category)}
@@ -128,16 +165,49 @@ export default async function OrderDetailPage({ params }: { params: { id: string
             ))}
           </tbody>
         </table>
+        {order.items.some((i) => i.downloadToken || i.category === "DIGITAL") && order.status !== "CANCELLED" && !awaiting && (
+          <div className="border-t border-neutral-100 px-4 py-3 space-y-2">
+            <ResendDownloads orderId={order.id} email={order.customerEmail} mailConnected={resendConnected()} />
+            {order.items.find((i) => i.downloadToken) ? (
+              <p className="text-xs text-neutral-500">
+                Client bundle:{" "}
+                <a className="underline" href={`/api/store/download/${order.items.find((i) => i.downloadToken)!.downloadToken}/bundle`}>
+                  download all digital files as ZIP
+                </a>{" "}
+                (large orders split into parts automatically)
+              </p>
+            ) : null}
+          </div>
+        )}
         <div className="border-t border-neutral-100 px-4 py-3 text-sm space-y-1">
           <Row label="Subtotal" value={fmtMoney(order.subtotalCents)} />
           {order.discountCents > 0 && <Row label={`Discount${order.couponCode ? ` (${order.couponCode})` : ""}`} value={`−${fmtMoney(order.discountCents)}`} />}
           {order.shippingCents > 0 && <Row label="Shipping" value={fmtMoney(order.shippingCents)} />}
-          {order.taxCents > 0 && <Row label="Tax" value={fmtMoney(order.taxCents)} />}
+          {order.taxCents > 0 && <Row label={order.taxLabel || "Tax"} value={fmtMoney(order.taxCents)} />}
           {order.giftCardCents > 0 && <Row label="Gift card" value={`−${fmtMoney(order.giftCardCents)}`} />}
           <div className="flex justify-between font-medium pt-1 border-t border-neutral-100">
-            <span>Charged</span>
+            <span>{awaiting ? "Due" : "Charged"}</span>
             <span>{fmtMoney(order.totalCents)}</span>
           </div>
+          {storeProfile.whiteLabelPackaging && hasLabItems ? (
+            <p className="text-xs text-neutral-500 pt-1">
+              White label packaging is on for this store: lab shipments carry no Pixelset or lab branding, only
+              your studio name.
+            </p>
+          ) : null}
+          {(order.commissionCents > 0 || order.labCostCents > 0 || order.feeCents > 0 || order.payoutCents > 0) && (
+            <div className="pt-2 mt-1 border-t border-neutral-100 space-y-1 text-neutral-600">
+              {order.labCostCents > 0 && <Row label="Lab costs" value={`−${fmtMoney(order.labCostCents)}`} />}
+              {order.feeCents > 0 && <Row label="Estimated processor fee" value={`−${fmtMoney(order.feeCents)}`} />}
+              {order.commissionCents > 0 && (
+                <Row label="Pixelset commission (Free plan, on the pre-discount subtotal)" value={`−${fmtMoney(order.commissionCents)}`} />
+              )}
+              <div className="flex justify-between font-medium text-neutral-900">
+                <span>Your payout</span>
+                <span>{fmtMoney(order.payoutCents)}</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -155,8 +225,17 @@ export default async function OrderDetailPage({ params }: { params: { id: string
           sentAt: lo.sentAt ? formatDateTime(lo.sentAt) : "",
           response: lo.response,
           createdAt: formatDateTime(lo.createdAt),
+          trackingNumber: lo.trackingNumber,
+          carrier: lo.carrier,
+          labReference: lo.labReference,
+          events: events
+            .filter((e) => e.labOrderId === lo.id)
+            .map((e) => ({ id: e.id, status: e.status, note: e.note, source: e.source, at: formatDateTime(e.createdAt) })),
         }))}
+        held={awaiting}
       />
+
+      <SupportActions orderId={order.id} />
 
       {copyList.length > 0 && (
         <div className="card p-4">

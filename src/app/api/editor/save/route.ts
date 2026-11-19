@@ -4,6 +4,7 @@ import path from "path";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { permissionError } from "@/lib/team";
+import { slugify } from "@/lib/utils";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,51 @@ export async function POST(req: NextRequest) {
     where: { id: String(body.photoId ?? ""), collection: { userId: user.id } },
   });
   if (!photo) return NextResponse.json({ error: "Photo not found" }, { status: 404 });
+
+  // Phase 5B: export destination. Default is the original's own set; any
+  // collection and set the photographer owns, a new set, or a new gallery.
+  let destCollectionId = photo.collectionId;
+  let destSetId: string = photo.setId;
+  let destinationLabel = "";
+  const newCollectionName = typeof body.newCollectionName === "string" ? body.newCollectionName.trim().slice(0, 120) : "";
+  const wantCollection = typeof body.destCollectionId === "string" ? body.destCollectionId : "";
+  const wantSet = typeof body.destSetId === "string" ? body.destSetId : "";
+  const newSetName = typeof body.newSetName === "string" ? body.newSetName.trim().slice(0, 80) : "";
+  if (newCollectionName) {
+    const base = slugify(newCollectionName) || "edits";
+    let slug = base;
+    let n = 1;
+    while (await db.collection.findUnique({ where: { slug } })) slug = `${base}-${++n}`;
+    const created = await db.collection.create({
+      data: { userId: user.id, name: newCollectionName, slug, sets: { create: [{ name: "Highlights", order: 0 }] } },
+      include: { sets: true },
+    });
+    destCollectionId = created.id;
+    destSetId = created.sets[0].id;
+    destinationLabel = `${created.name}, Highlights`;
+  } else if (wantCollection) {
+    const col = await db.collection.findFirst({
+      where: { id: wantCollection, userId: user.id },
+      include: { sets: { orderBy: { order: "asc" } } },
+    });
+    if (!col) return NextResponse.json({ error: "Destination gallery not found" }, { status: 404 });
+    destCollectionId = col.id;
+    if (newSetName) {
+      const set = await db.photoSet.create({ data: { collectionId: col.id, name: newSetName, order: col.sets.length } });
+      destSetId = set.id;
+      destinationLabel = `${col.name}, ${set.name}`;
+    } else if (wantSet) {
+      const set = col.sets.find((x) => x.id === wantSet);
+      if (!set) return NextResponse.json({ error: "Destination set not found in that gallery" }, { status: 404 });
+      destSetId = set.id;
+      destinationLabel = `${col.name}, ${set.name}`;
+    } else {
+      const first =
+        col.sets[0] ?? (await db.photoSet.create({ data: { collectionId: col.id, name: "Highlights", order: 0 } }));
+      destSetId = first.id;
+      destinationLabel = `${col.name}, ${first.name}`;
+    }
+  }
 
   const dataUrl = typeof body.dataUrl === "string" ? body.dataUrl : "";
   const match = dataUrl.match(/^data:image\/(jpeg|png);base64,(.+)$/);
@@ -48,17 +94,17 @@ export async function POST(req: NextRequest) {
   const safeLabel = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "edited";
   const filename = `${base}-${safeLabel}-${Date.now().toString(36)}.jpg`;
 
-  const dir = path.join(process.cwd(), "public", "uploads", photo.collectionId);
+  const dir = path.join(process.cwd(), "public", "uploads", destCollectionId);
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, filename), jpeg);
 
-  const count = await db.photo.count({ where: { setId: photo.setId } });
+  const count = await db.photo.count({ where: { setId: destSetId } });
   const created = await db.photo.create({
     data: {
-      collectionId: photo.collectionId,
-      setId: photo.setId,
+      collectionId: destCollectionId,
+      setId: destSetId,
       filename,
-      url: `/uploads/${photo.collectionId}/${filename}`,
+      url: `/uploads/${destCollectionId}/${filename}`,
       isExternal: false,
       width,
       height,
@@ -66,5 +112,11 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return NextResponse.json({ id: created.id, url: created.url, filename: created.filename });
+  return NextResponse.json({
+    id: created.id,
+    url: created.url,
+    filename: created.filename,
+    collectionId: destCollectionId,
+    destination: destinationLabel,
+  });
 }

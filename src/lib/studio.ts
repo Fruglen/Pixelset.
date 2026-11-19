@@ -29,6 +29,78 @@ export function parseItems(json: string): LineItem[] {
   }
 }
 
+// Phase 5B: quote items can be fixed, optional extras, or packages (pick one per group).
+export interface QuoteItem extends LineItem {
+  kind: "fixed" | "optional" | "package";
+  group: string;
+  preselected: boolean;
+}
+
+export function parseQuoteItems(json: string): QuoteItem[] {
+  let arr: unknown[] = [];
+  try {
+    const v = JSON.parse(json);
+    arr = Array.isArray(v) ? v : [];
+  } catch {
+    arr = [];
+  }
+  return arr.map((raw) => {
+    const it = (raw ?? {}) as Record<string, unknown>;
+    const kind = it.kind === "optional" || it.kind === "package" ? it.kind : "fixed";
+    return {
+      description: String(it.description ?? ""),
+      qty: Math.max(0, Number(it.qty) || 0),
+      unitCents: Math.round(Number(it.unitCents) || 0),
+      kind,
+      group: kind === "package" ? String(it.group ?? "").trim() || "Package" : "",
+      preselected: it.preselected === true,
+    };
+  });
+}
+
+/** Default selection: fixed items, preselected optionals, and the first (or preselected) package per group. */
+export function defaultQuoteSelection(items: QuoteItem[]): number[] {
+  const sel: number[] = [];
+  const groups = new Set<string>();
+  items.forEach((it, i) => {
+    if (it.kind === "fixed" || (it.kind === "optional" && it.preselected)) sel.push(i);
+  });
+  items.forEach((it, i) => {
+    if (it.kind === "package" && it.preselected && !groups.has(it.group)) {
+      groups.add(it.group);
+      sel.push(i);
+    }
+  });
+  items.forEach((it, i) => {
+    if (it.kind === "package" && !groups.has(it.group)) {
+      groups.add(it.group);
+      sel.push(i);
+    }
+  });
+  return sel.sort((a, b) => a - b);
+}
+
+/** Validate a client's selection; returns an error message or the cleaned list. */
+export function validateQuoteSelection(items: QuoteItem[], selection: unknown): { error: string } | { selection: number[] } {
+  const raw = Array.isArray(selection) ? selection.map((n) => Math.round(Number(n))) : [];
+  const sel = Array.from(new Set(raw.filter((n) => Number.isInteger(n) && n >= 0 && n < items.length)));
+  const groups = new Map<string, number>();
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (it.kind === "fixed" && !sel.includes(i)) sel.push(i);
+    if (it.kind === "package") groups.set(it.group, (groups.get(it.group) ?? 0) + (sel.includes(i) ? 1 : 0));
+  }
+  for (const [g, n] of Array.from(groups.entries())) {
+    if (n !== 1) return { error: `Choose one option for ${g}.` };
+  }
+  return { selection: sel.sort((a, b) => a - b) };
+}
+
+export function selectedQuoteItems(items: QuoteItem[], selection: number[] | null): LineItem[] {
+  const sel = selection ?? defaultQuoteSelection(items);
+  return items.filter((_, i) => sel.includes(i)).map(({ description, qty, unitCents }) => ({ description, qty, unitCents }));
+}
+
 export interface Totals {
   subtotal: number;
   discount: number;
@@ -263,8 +335,17 @@ export async function convertQuoteToInvoice(quote: {
   discountType: string;
   discountValue: number;
   notes: string;
+  selection?: string;
 }) {
   const existing = await db.invoice.findUnique({ where: { quoteId: quote.id } });
+  // Phase 5B: only the client's chosen packages and extras go onto the invoice.
+  let chosen: number[] | null = null;
+  try {
+    chosen = quote.selection ? (JSON.parse(quote.selection) as number[]) : null;
+  } catch {
+    chosen = null;
+  }
+  const invoiceItems = JSON.stringify(selectedQuoteItems(parseQuoteItems(quote.items), chosen));
   if (existing) return existing;
   const dueDate = new Date();
   dueDate.setDate(dueDate.getDate() + 14);
@@ -277,7 +358,7 @@ export async function convertQuoteToInvoice(quote: {
       title: quote.title || `From quote ${quote.number}`,
       status: "DRAFT",
       dueDate,
-      items: quote.items,
+      items: invoiceItems,
       taxRate: quote.taxRate,
       discountType: quote.discountType,
       discountValue: quote.discountValue,

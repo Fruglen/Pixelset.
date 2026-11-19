@@ -43,27 +43,102 @@ type CollectionSettings = {
   allowZip: boolean;
   videoDownloadEnabled: boolean;
   expiresAt: string;
+  expired: boolean;
   expiryReminder: boolean;
+  expiryReminderDays: number;
+  expiryReminderSentAt: string;
+  coverImageUrl: string;
+  campaignOptIn: boolean;
   storeEnabled: boolean;
   priceSheetId: string | null;
   slideshowEnabled: boolean;
   slideshowMusicUrl: string;
+  // Final pass: gallery experience switches (Phase 5B Collection fields)
+  coverAnimation: boolean;
+  navStyle: string;
+  seoIndexing: boolean;
+  showOnHomepage: boolean;
+  clientOnlyDownloads: boolean;
+  emailedDownloadAll: boolean;
+  zipPartSize: number;
+  desktopOnlyZip: boolean;
+  favoritesEnabled: boolean;
+  socialSharing: boolean;
+  galleryAssist: boolean;
+  language: string;
 };
 
 export default function SettingsClient({
   collection,
   photos,
   priceSheets,
+  timezone,
+  mailConnected,
+  extraDownload,
 }: {
+  extraDownload?: React.ReactNode; // Phase 5B platform: access groups section
   collection: CollectionSettings;
   photos: { id: string; url: string; mediaType: string; posterUrl: string }[];
   priceSheets: { id: string; name: string }[];
+  timezone: string;
+  mailConnected: boolean;
 }) {
   const router = useRouter();
   const [c, setC] = useState(collection);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState("");
   const [error, setError] = useState("");
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [coverMsg, setCoverMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [reminderBusy, setReminderBusy] = useState(false);
+  const [reminderMsg, setReminderMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Phase 5B: a cover image uploaded on its own, never added to the photo grid.
+  async function uploadCover(file: File | undefined) {
+    if (!file) return;
+    setCoverBusy(true);
+    setCoverMsg(null);
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`/api/collections/${c.id}/cover`, { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    setCoverBusy(false);
+    if (!res.ok) {
+      setCoverMsg({ ok: false, text: data.error || "Upload failed" });
+      return;
+    }
+    set("coverImageUrl", data.url);
+    setCoverMsg({ ok: true, text: data.animated ? "Animated GIF cover uploaded, the animation is kept." : "Cover image uploaded." });
+    router.refresh();
+  }
+
+  async function removeCover() {
+    await fetch(`/api/collections/${c.id}/cover`, { method: "DELETE" });
+    set("coverImageUrl", "");
+    setCoverMsg(null);
+    router.refresh();
+  }
+
+  async function sendReminderNow() {
+    setReminderBusy(true);
+    setReminderMsg(null);
+    const res = await fetch(`/api/collections/${c.id}/expiry-reminder`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    setReminderBusy(false);
+    if (!res.ok) {
+      setReminderMsg({ ok: false, text: data.error || "Could not send" });
+      return;
+    }
+    const n = data.recipients.length;
+    const delivered = data.recipients.filter((r: { delivered: boolean }) => r.delivered).length;
+    setReminderMsg({
+      ok: true,
+      text: mailConnected
+        ? `Reminder delivered to ${delivered} of ${n} recipient${n === 1 ? "" : "s"}.`
+        : `Reminder recorded for ${n} recipient${n === 1 ? "" : "s"}, logged only because email is not connected.`,
+    });
+    set("expiryReminderSentAt", new Date().toISOString());
+  }
 
   function set<K extends keyof CollectionSettings>(key: K, value: CollectionSettings[K]) {
     setC((prev) => ({ ...prev, [key]: value }));
@@ -110,10 +185,24 @@ export default function SettingsClient({
         videoDownloadEnabled: c.videoDownloadEnabled,
         expiresAt: c.expiresAt || null,
         expiryReminder: c.expiryReminder,
+        expiryReminderDays: c.expiryReminderDays,
+        campaignOptIn: c.campaignOptIn,
         storeEnabled: c.storeEnabled,
         priceSheetId: c.priceSheetId,
         slideshowEnabled: c.slideshowEnabled,
         slideshowMusicUrl: c.slideshowMusicUrl,
+        coverAnimation: c.coverAnimation,
+        navStyle: c.navStyle,
+        seoIndexing: c.seoIndexing,
+        showOnHomepage: c.showOnHomepage,
+        clientOnlyDownloads: c.clientOnlyDownloads,
+        emailedDownloadAll: c.emailedDownloadAll,
+        zipPartSize: c.zipPartSize,
+        desktopOnlyZip: c.desktopOnlyZip,
+        favoritesEnabled: c.favoritesEnabled,
+        socialSharing: c.socialSharing,
+        galleryAssist: c.galleryAssist,
+        language: c.language,
       }),
     });
     setSaving(false);
@@ -146,6 +235,12 @@ export default function SettingsClient({
     router.refresh();
   }
 
+  // Server truth (photographer timezone) while the date is unchanged.
+  const expiredNow = c.expiresAt
+    ? c.expiresAt === collection.expiresAt
+      ? collection.expired
+      : new Date(`${c.expiresAt}T23:59:59`) < new Date()
+    : false;
   const selectedPalette = PALETTES.find((p) => p.id === c.palette) ?? PALETTES[0];
 
   return (
@@ -246,6 +341,43 @@ export default function SettingsClient({
             ))}
           </div>
         )}
+
+        <div className="mb-5">
+          <p className="label">Or upload a separate cover image</p>
+          <p className="text-xs text-neutral-500 mb-2">
+            Used only as the cover, it is not added to the photo grid. JPEG, PNG or WEBP up to 100 MB, animated GIF up to 85 MB
+            (the animation plays on the cover).
+          </p>
+          <div className="flex items-center gap-3">
+            {c.coverImageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={c.coverImageUrl} alt="Uploaded cover" className="h-16 w-24 object-cover rounded border border-neutral-200" />
+            )}
+            <label className="btn-secondary cursor-pointer">
+              {coverBusy ? "Uploading…" : c.coverImageUrl ? "Replace cover image" : "Upload cover image"}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                disabled={coverBusy}
+                onChange={(e) => {
+                  uploadCover(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {c.coverImageUrl && (
+              <button className="text-xs text-red-500 underline" onClick={removeCover}>
+                Remove, use a collection photo
+              </button>
+            )}
+            {c.coverImageUrl.toLowerCase().endsWith(".gif") && (
+              <span className="text-[10px] uppercase tracking-wide bg-neutral-100 px-1.5 py-0.5 rounded">GIF</span>
+            )}
+          </div>
+          {coverMsg && <p className={`text-xs mt-1 ${coverMsg.ok ? "text-emerald-600" : "text-red-600"}`}>{coverMsg.text}</p>}
+          {c.coverImageUrl && <p className="text-xs text-neutral-400 mt-1">The uploaded image overrides the cover photo chosen above.</p>}
+        </div>
 
         <div className="grid grid-cols-2 gap-4 mb-5">
           <div>
@@ -385,9 +517,15 @@ export default function SettingsClient({
           />
           <Toggle
             label="Watermark previews"
-            desc="Overlay your watermark text on gallery previews (never on downloads of originals)."
+            desc="Your watermark (designed in Settings, Gallery) is rendered into every preview image. Originals are never touched."
             checked={c.watermark}
             onChange={(v) => set("watermark", v)}
+          />
+          <Toggle
+            label="Marketing opt in"
+            desc="Visitors who enter their email can tick a box to hear about print sales, mini sessions and offers. Opt ins are stored as your campaign audience."
+            checked={c.campaignOptIn}
+            onChange={(v) => set("campaignOptIn", v)}
           />
           <p className="text-xs text-neutral-500">
             Per-set <b>Client Exclusive Access</b> is configured on each set in the Photos tab. Per-photo{" "}
@@ -480,11 +618,106 @@ export default function SettingsClient({
         </div>
       </Section>
 
+      {extraDownload}
+
       {/* Expiry */}
+      <Section title="Gallery experience">
+        <div className="space-y-4">
+          <Toggle
+            label="Cover animation"
+            desc="The cover eases in when a visitor opens the gallery. Reduced motion visitors see it still."
+            checked={c.coverAnimation}
+            onChange={(v) => set("coverAnimation", v)}
+          />
+          <div>
+            <label className="label">Navigation style</label>
+            <select className="input !w-auto" value={c.navStyle} onChange={(e) => set("navStyle", e.target.value)}>
+              <option value="text">Text</option>
+              <option value="icons">Icons only</option>
+              <option value="iconsText">Icons and text</option>
+            </select>
+          </div>
+          <Toggle
+            label="Allow search engine indexing"
+            desc="Off (the default) serves a noindex tag with this gallery, keeping it out of Google and other search results."
+            checked={c.seoIndexing}
+            onChange={(v) => set("seoIndexing", v)}
+          />
+          <Toggle
+            label="Show on homepage"
+            desc="List this gallery on your public gallery homepage (set the homepage up in Collections, Settings)."
+            checked={c.showOnHomepage}
+            onChange={(v) => set("showOnHomepage", v)}
+          />
+          <Toggle
+            label="Favorites"
+            desc="Let clients build favorite lists in this gallery. Off hides every heart, the Favorites button and list downloads."
+            checked={c.favoritesEnabled}
+            onChange={(v) => set("favoritesEnabled", v)}
+          />
+          <Toggle
+            label="Social sharing buttons"
+            desc="Show a Share menu in the gallery navigation: Facebook, X, Pinterest, email and copy link."
+            checked={c.socialSharing}
+            onChange={(v) => set("socialSharing", v)}
+          />
+          <Toggle
+            label="Gallery Assist cards"
+            desc="First time visitors see short cards explaining viewing, favorites and downloads. They can dismiss them for good."
+            checked={c.galleryAssist}
+            onChange={(v) => set("galleryAssist", v)}
+          />
+          <Toggle
+            label="Restrict downloads to clients only"
+            desc="Downloads also need a registered client email (plus the PIN when one is set)."
+            checked={c.clientOnlyDownloads}
+            onChange={(v) => set("clientOnlyDownloads", v)}
+          />
+          <Toggle
+            label="Download All delivered by emailed link"
+            desc="Offer Download All as a link emailed to the client instead of a direct ZIP (the phone friendly route)."
+            checked={c.emailedDownloadAll}
+            onChange={(v) => set("emailedDownloadAll", v)}
+          />
+          <Toggle
+            label="Download All on desktop only"
+            desc="Phones are told Download All needs a computer, and offered the emailed link instead."
+            checked={c.desktopOnlyZip}
+            onChange={(v) => set("desktopOnlyZip", v)}
+          />
+          <div>
+            <label className="label">Max photos per ZIP part</label>
+            <input
+              className="input max-w-[8rem]"
+              type="number"
+              min={10}
+              max={2000}
+              value={c.zipPartSize}
+              onChange={(e) => set("zipPartSize", Number(e.target.value) || 200)}
+            />
+            <p className="text-xs text-neutral-500 mt-1">Large galleries download as several ZIP parts of at most this many photos each.</p>
+          </div>
+          <div>
+            <label className="label">Gallery language</label>
+            <select className="input !w-auto" value={c.language} onChange={(e) => set("language", e.target.value)}>
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="nl">Dutch</option>
+              <option value="zh">Chinese (Simplified)</option>
+              <option value="pt">Portuguese</option>
+              <option value="sv">Swedish</option>
+            </select>
+            <p className="text-xs text-neutral-500 mt-1">Recorded on the gallery and sent as its language tag. Translated interface text is not built yet, so the gallery still reads in English.</p>
+          </div>
+        </div>
+      </Section>
+
       <Section title="Auto Expiry">
         <div className="grid grid-cols-2 gap-4 items-end">
           <div>
-            <label className="label">Expiry date (hides at 11:59 pm local time)</label>
+            <label className="label">Expiry date (hides at 11:59 pm, {timezone.replace(/_/g, " ")})</label>
             <input
               className="input"
               type="date"
@@ -493,13 +726,42 @@ export default function SettingsClient({
             />
           </div>
           <Toggle
-            label="Expiry reminder"
-            desc="Flag to remind clients before this gallery expires."
+            label="Expiry reminder email"
+            desc="Automatically email registered, invited and favorite list clients before the gallery expires."
             checked={c.expiryReminder}
             onChange={(v) => set("expiryReminder", v)}
           />
         </div>
-        {c.expiresAt && new Date(`${c.expiresAt}T23:59:59`) < new Date() && (
+        {c.expiryReminder && (
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center gap-2 text-sm">
+              <span>Send</span>
+              <input
+                className="input !w-20"
+                type="number"
+                min={0}
+                max={60}
+                value={c.expiryReminderDays}
+                onChange={(e) => set("expiryReminderDays", Number(e.target.value) || 0)}
+              />
+              <span>days before the gallery expires.</span>
+            </div>
+            <p className="text-xs text-neutral-500">
+              {c.expiryReminderSentAt
+                ? `Sent ${new Date(c.expiryReminderSentAt).toLocaleString()} for the current expiry date.`
+                : "Not sent yet for the current expiry date."}{" "}
+              Edit the wording under Settings, Email Templates. Email:{" "}
+              {mailConnected ? "connected" : "Not connected, reminders are logged in Activities and the inbox only"}.
+            </p>
+            {c.expiresAt && !expiredNow && (
+              <button className="btn-secondary !py-1 text-xs" onClick={sendReminderNow} disabled={reminderBusy}>
+                {reminderBusy ? "Sending…" : "Send reminder now"}
+              </button>
+            )}
+            {reminderMsg && <p className={`text-xs ${reminderMsg.ok ? "text-emerald-600" : "text-red-600"}`}>{reminderMsg.text}</p>}
+          </div>
+        )}
+        {expiredNow && (
           <p className="text-xs text-amber-700 bg-amber-50 rounded p-2 mt-3">
             This date has passed, the gallery is hidden from clients. Clear or move the date and keep
             status Published to re-open it.
@@ -643,6 +905,13 @@ function CoverThumb({ style }: { style: string }) {
           <div className="h-1/3 bg-neutral-100 flex items-center justify-center">
             <span className="bg-neutral-500/70 rounded-sm" style={{ width: "50%", height: 3 }} />
           </div>
+        </div>
+      );
+    case "vintage":
+      return (
+        <div className={`${base} !bg-neutral-100 flex flex-col items-center justify-center gap-1`}>
+          <div className="h-6 w-10 bg-neutral-300 ring-2 ring-white" />
+          <span className="bg-neutral-500/70 rounded-sm" style={{ width: "40%", height: 3 }} />
         </div>
       );
     case "divider":

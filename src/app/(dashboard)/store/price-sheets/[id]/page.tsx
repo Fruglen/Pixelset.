@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import SheetEditor from "./sheet-editor";
+import { parseFrames } from "@/lib/store-rates";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,16 @@ export default async function PriceSheetEditorPage({ params }: { params: { id: s
           selfFulfilled: p.selfFulfilled,
           shippingCents: p.shippingCents,
           active: p.active,
-          variants: p.variants.map((v) => ({ id: v.id, name: v.name, priceCents: v.priceCents })),
+          pricingMode: p.pricingMode,
+          markupPct: p.markupPct,
+          packageItems: p.packageItems,
+          variants: p.variants.map((v) => ({
+            id: v.id,
+            name: v.name,
+            priceCents: v.priceCents,
+            labCostCents: v.labCostCents,
+          })),
+          frames: parseFrames(p.frameOptions),
         })),
       }}
     />

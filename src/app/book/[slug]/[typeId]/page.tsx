@@ -1,8 +1,11 @@
 import Link from "next/link";
+import { brandFor, brandVars } from "@/lib/brand";
+import { BrandMark } from "@/components/brand-mark";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { BookingFlow } from "./booking-flow";
+import { STUDIO_LIMITS, planFor } from "@/lib/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +25,7 @@ async function load(slug: string, typeId: string) {
         include: {
           slots: {
             orderBy: { order: "asc" },
-            include: { bookings: { where: { status: { in: ["CONFIRMED", "PENDING"] } } } },
+            include: { bookings: { where: { status: { in: ["CONFIRMED", "PENDING", "AWAITING_CLIENT"] } } } },
           },
         },
       },
@@ -45,8 +48,10 @@ export async function generateMetadata({
 
 export default async function BookSessionPage({
   params,
+  searchParams,
 }: {
   params: { slug: string; typeId: string };
+  searchParams?: { slot?: string };
 }) {
   const data = await load(params.slug, params.typeId);
   if (!data) notFound();
@@ -62,18 +67,22 @@ export default async function BookSessionPage({
       }[])
     : [];
 
+  const studioLimits = STUDIO_LIMITS[(await planFor(user.id)).studio];
+  const brand = await brandFor(user.id);
   return (
-    <div className="min-h-screen bg-[#faf9f7] text-ink">
+    <div className="min-h-screen bg-[#faf9f7] text-ink branded" style={brandVars(brand)}>
       <header className="border-b border-neutral-200 bg-white">
         <div className="max-w-2xl mx-auto px-6 py-6 flex items-center justify-between">
           <Link href={`/book/${params.slug}`} className="text-sm text-neutral-500 hover:text-neutral-900">
             ← All sessions
           </Link>
-          <span className="font-display">{user.businessName || user.name}</span>
+          <BrandMark brand={brand} size="sm" />
         </div>
       </header>
       <main className="max-w-2xl mx-auto px-6 py-10">
+        {/* Phase 5B platform: plan gated booking features */}
         <BookingFlow
+          initialSlotId={typeof searchParams?.slot === "string" ? searchParams.slot : ""}
           slug={params.slug}
           sessionType={{
             id: sessionType.id,
@@ -86,7 +95,9 @@ export default async function BookSessionPage({
             locationType: sessionType.locationType,
             location: sessionType.location,
             cancellationPolicy: sessionType.cancellationPolicy,
-            retainerType: sessionType.retainerType,
+            // Phase 5B platform: Pro features follow the photographer's plan
+            retainerType: studioLimits.retainers ? sessionType.retainerType : "NONE",
+            requiresApproval: sessionType.requiresApproval && studioLimits.manualApproval,
             retainerValue: sessionType.retainerValue,
             isMini: sessionType.isMini,
             showBookedSpots: sessionType.showBookedSpots,

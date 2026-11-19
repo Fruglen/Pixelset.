@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
+import { brandFor, brandVars } from "@/lib/brand";
+import { BrandMark } from "@/components/brand-mark";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
-import { calcTotals, fmtMoney, parseItems } from "@/lib/studio";
+import { calcTotals, defaultQuoteSelection, fmtMoney, parseQuoteItems, selectedQuoteItems } from "@/lib/studio";
 import { formatDate } from "@/lib/utils";
 import { QuoteClient } from "./quote-client";
 
@@ -16,15 +18,22 @@ export default async function QuotePage({ params }: { params: { token: string } 
   });
   if (!quote || quote.status === "DRAFT") notFound();
 
-  const items = parseItems(quote.items);
-  const totals = calcTotals(items, quote.taxRate, quote.discountType, quote.discountValue);
+  const quoteItems = parseQuoteItems(quote.items);
+  const chosen: number[] = quote.selection ? (JSON.parse(quote.selection) as number[]) : defaultQuoteSelection(quoteItems);
+  const hasChoices = quoteItems.some((it) => it.kind !== "fixed");
+  const open = quote.status === "SENT";
+  // Accepted quotes show exactly what the client chose; open quotes show the included items, choices are picked below.
+  const items = open && hasChoices ? quoteItems.filter((it) => it.kind === "fixed") : selectedQuoteItems(quoteItems, chosen);
+  const totals = calcTotals(selectedQuoteItems(quoteItems, chosen), quote.taxRate, quote.discountType, quote.discountValue);
   const business = quote.user.businessName || quote.user.name;
   const expired = !!quote.validUntil && quote.validUntil.getTime() < Date.now() && quote.status === "SENT";
 
+  const brand = await brandFor(quote.userId);
   return (
-    <div className="min-h-screen bg-[#faf9f7] text-ink py-10 px-4">
+    <div className="min-h-screen bg-[#faf9f7] text-ink py-10 px-4 branded" style={brandVars(brand)}>
       <div className="max-w-2xl mx-auto">
-        <p className="text-center text-xs uppercase tracking-[0.25em] text-neutral-400 mb-2">{business}</p>
+        <div className="mb-3"><BrandMark brand={brand} /></div>
+        {brand.logoUrl ? <p className="text-center text-xs uppercase tracking-[0.25em] text-neutral-400 mb-2">{business}</p> : null}
         <h1 className="font-display text-2xl text-center mb-8">Quote {quote.number}</h1>
 
         <div className="bg-white border border-neutral-200 shadow-sm rounded-sm px-8 py-10 text-sm">
@@ -63,7 +72,7 @@ export default async function QuotePage({ params }: { params: { token: string } 
             </tbody>
           </table>
 
-          <div className="flex justify-end mt-4">
+          <div className={`flex justify-end mt-4 ${open && hasChoices ? "hidden" : ""}`}>
             <div className="w-56 space-y-1.5">
               <div className="flex justify-between text-neutral-600">
                 <span>Subtotal</span>
@@ -108,7 +117,14 @@ export default async function QuotePage({ params }: { params: { token: string } 
               This quote has expired, contact {business} for a fresh one.
             </p>
           ) : (
-            <QuoteClient token={params.token} />
+            <QuoteClient
+              token={params.token}
+              items={quoteItems.map((it, i) => ({ ...it, index: i }))}
+              initial={chosen}
+              taxRate={quote.taxRate}
+              discountType={quote.discountType}
+              discountValue={quote.discountValue}
+            />
           )}
         </div>
         <p className="text-center text-xs text-neutral-400 mt-8">{business} · powered by Pixelset</p>

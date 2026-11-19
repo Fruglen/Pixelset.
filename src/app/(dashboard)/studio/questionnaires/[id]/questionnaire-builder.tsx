@@ -23,8 +23,12 @@ export function QuestionnaireBuilder({
   questionnaire,
   sessionTypes,
   responses,
+  contacts,
+  requests,
 }: {
-  questionnaire: { id: string; name: string; fields: Field[] };
+  questionnaire: { id: string; name: string; fields: Field[]; kind: string; afterDelivery: boolean };
+  contacts: { id: string; name: string; email: string }[];
+  requests: { id: string; name: string; email: string; token: string; reason: string; sentAt: string; completedAt: string; started?: boolean }[];
   sessionTypes: { id: string; name: string }[];
   responses: {
     id: string;
@@ -33,6 +37,8 @@ export function QuestionnaireBuilder({
     bookingTitle: string;
     createdAt: string;
     answers: Record<string, string>;
+    testimonial: boolean;
+    draft?: boolean;
   }[];
 }) {
   const router = useRouter();
@@ -41,6 +47,30 @@ export function QuestionnaireBuilder({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [openResponse, setOpenResponse] = useState("");
+  const [kind, setKind] = useState(questionnaire.kind);
+  const [sendTo, setSendTo] = useState("");
+  const [sendMsg, setSendMsg] = useState("");
+
+  async function patchQ(data: Record<string, unknown>) {
+    await fetch(`/api/studio/questionnaires/${questionnaire.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    router.refresh();
+  }
+
+  async function sendNow() {
+    setSendMsg("");
+    const res = await fetch(`/api/studio/questionnaires/${questionnaire.id}/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contactId: sendTo }),
+    });
+    const out = await res.json().catch(() => ({}));
+    setSendMsg(res.ok ? `Sent. ${out.delivery}` : out.error ?? "Could not send");
+    if (res.ok) router.refresh();
+  }
 
   function upd(i: number, patch: Partial<Field>) {
     setFields(fields.map((f, j) => (j === i ? { ...f, ...patch } : f)));
@@ -59,7 +89,7 @@ export function QuestionnaireBuilder({
     const res = await fetch(`/api/studio/questionnaires/${questionnaire.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, fields }),
+      body: JSON.stringify({ name, fields, kind }),
     });
     setBusy(false);
     if (res.ok) {
@@ -104,6 +134,81 @@ export function QuestionnaireBuilder({
           </p>
         ) : (
           <p className="text-xs text-neutral-400">Not attached to any session type yet.</p>
+        )}
+      </section>
+
+      <section className="card p-5 space-y-3">
+        <h2 className="font-display text-lg">Type</h2>
+        <div className="flex flex-wrap gap-5 text-sm">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="radio" checked={kind === "STANDARD"} onChange={() => setKind("STANDARD")} />
+            Standard questionnaire
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="radio" checked={kind === "FEEDBACK"} onChange={() => setKind("FEEDBACK")} />
+            Feedback and testimonial
+          </label>
+        </div>
+        {kind === "FEEDBACK" ? (
+          <label className="flex items-start gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={questionnaire.afterDelivery}
+              onChange={(e) => patchQ({ kind: "FEEDBACK", useAfterDelivery: e.target.checked })}
+            />
+            <span>
+              Send automatically after delivery
+              <span className="block text-xs text-neutral-500">
+                Emailed to the client once when their project card moves to Delivered on the Projects board. Clients can tick a box
+                to let you share their answers as a testimonial.
+              </span>
+            </span>
+          </label>
+        ) : null}
+      </section>
+
+      <section className="card p-5 space-y-3">
+        <h2 className="font-display text-lg">Send to a client</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <select className="input max-w-xs" value={sendTo} onChange={(e) => setSendTo(e.target.value)}>
+            <option value="">Choose a contact…</option>
+            {contacts.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.email})
+              </option>
+            ))}
+          </select>
+          <button className="btn-secondary" disabled={!sendTo} onClick={sendNow}>
+            Send link
+          </button>
+        </div>
+        {sendMsg ? <p className="text-xs text-neutral-500">{sendMsg}</p> : null}
+        {requests.length ? (
+          <ul className="text-sm divide-y divide-neutral-100 border border-neutral-100 rounded-md">
+            {requests.map((r) => (
+              <li key={r.id} className="px-3 py-2 flex items-center justify-between gap-3">
+                <span>
+                  {r.name || r.email}
+                  <span className="text-xs text-neutral-400">
+                    {" "}
+                    · sent {new Date(r.sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    {r.reason === "DELIVERY" ? " after delivery" : ""}
+                  </span>
+                </span>
+                <span className="flex items-center gap-3 text-xs">
+                  <span className={r.completedAt ? "text-emerald-600" : "text-amber-600"}>
+                    {r.completedAt ? "Completed" : r.started ? "Started, draft saved" : "Not completed"}
+                  </span>
+                  <a className="underline text-neutral-500" href={`/questionnaire/${r.token}`} target="_blank" rel="noreferrer">
+                    Link
+                  </a>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-neutral-400">Sent links are tracked here, the Questionnaire reminder automation nudges unfinished ones.</p>
         )}
       </section>
 
@@ -169,7 +274,7 @@ export function QuestionnaireBuilder({
       <section className="card p-5">
         <h2 className="font-display text-lg mb-3">Responses ({responses.length})</h2>
         {responses.length === 0 ? (
-          <p className="text-sm text-neutral-500">No responses yet, they arrive with bookings.</p>
+          <p className="text-sm text-neutral-500">No responses yet, they arrive with bookings and sent links.</p>
         ) : (
           <div className="divide-y divide-neutral-100">
             {responses.map((r) => (
@@ -181,6 +286,8 @@ export function QuestionnaireBuilder({
                   <span className="text-sm font-medium">
                     {r.name || r.email || "Anonymous"}
                     {r.bookingTitle ? <span className="text-neutral-500 font-normal"> · {r.bookingTitle}</span> : null}
+                    {r.testimonial ? <span className="ml-2 text-[10px] bg-emerald-100 text-emerald-700 rounded-full px-2 py-0.5">Testimonial OK</span> : null}
+                    {r.draft ? <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 rounded-full px-2 py-0.5">Draft, not submitted</span> : null}
                   </span>
                   <span className="text-xs text-neutral-400">
                     {new Date(r.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}{" "}

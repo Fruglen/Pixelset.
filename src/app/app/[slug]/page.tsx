@@ -1,18 +1,14 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
+import { greetingFor, resolveMobileApp } from "@/lib/mobile-app";
+import { GALLERY_LIMITS, planFor } from "@/lib/plans";
 import InstallPrompt from "./install-prompt";
 
 export const dynamic = "force-dynamic";
 
 async function getApp(slug: string) {
-  return db.mobileApp.findUnique({
-    where: { slug },
-    include: {
-      collection: { include: { photos: { orderBy: { order: "asc" } } } },
-      user: { select: { businessName: true, name: true } },
-    },
-  });
+  return (await resolveMobileApp(slug))?.app ?? null;
 }
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
@@ -20,7 +16,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   if (!app || !app.enabled) return { title: "Gallery App" };
   return {
     title: app.appName,
-    manifest: `/app/${app.slug}/manifest.webmanifest`,
+    manifest: `/app/${params.slug}/manifest.webmanifest`,
     appleWebApp: { capable: true, title: app.appName, statusBarStyle: "black-translucent" },
     icons: { apple: `/api/app-icon/${app.slug}?size=180` },
   };
@@ -32,16 +28,29 @@ export async function generateViewport({ params }: { params: { slug: string } })
 }
 
 export default async function MobileAppPage({ params }: { params: { slug: string } }) {
-  const app = await getApp(params.slug);
-  if (!app || !app.enabled) notFound();
+  const resolved = await resolveMobileApp(params.slug);
+  const app = resolved?.app;
+  if (!resolved || !app || !app.enabled) notFound();
+  const client = resolved.client;
+  if (client) await db.mobileAppClient.update({ where: { id: client.id }, data: { lastOpenedAt: new Date() } });
+  const greeting = greetingFor(client, app.collection.name);
 
   const collection = app.collection;
+  // Night build (Pricing lane): the remove branding unlock also hides the
+  // Powered by line in client mobile apps.
+  const ownerPlan = await planFor(collection.userId);
+  const hideBranding = GALLERY_LIMITS[ownerPlan.gallery].removeBranding;
   const cover =
     (collection.coverPhotoId
       ? collection.photos.find((p) => p.id === collection.coverPhotoId)?.url
       : undefined) ?? collection.photos[0]?.url ?? "";
   const brand = app.user.businessName || app.user.name;
   const previews = collection.photos.filter((p) => !p.isPrivate).slice(0, 6);
+  const socials = [
+    { label: "Instagram", url: app.user.website?.socialInstagram ?? "" },
+    { label: "Facebook", url: app.user.website?.socialFacebook ?? "" },
+    { label: "Pinterest", url: app.user.website?.socialPinterest ?? "" },
+  ].filter((s) => s.url);
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white flex flex-col">
@@ -68,6 +77,7 @@ export default async function MobileAppPage({ params }: { params: { slug: string
           </div>
           <p className="text-xs tracking-[0.25em] uppercase text-white/60">{brand}</p>
           <h1 className="font-display text-3xl mt-1">{app.appName}</h1>
+          {greeting && <p className="text-sm text-white/80 mt-2">{greeting}</p>}
           {collection.eventDate && (
             <p className="text-xs text-white/50 mt-1">
               {collection.eventDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
@@ -105,7 +115,16 @@ export default async function MobileAppPage({ params }: { params: { slug: string
             <span className="text-center rounded-full py-3 text-sm border border-white/10 text-white/30">✆ Call</span>
           )}
         </div>
-        <InstallPrompt />
+        <InstallPrompt appName={app.appName} />
+        {socials.length > 0 && (
+          <div className="flex justify-center gap-5 pt-1">
+            {socials.map((s) => (
+              <a key={s.label} href={s.url} target="_blank" rel="noreferrer" className="text-sm text-white/70 underline underline-offset-4">
+                {s.label}
+              </a>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Preview strip */}
@@ -122,7 +141,8 @@ export default async function MobileAppPage({ params }: { params: { slug: string
       )}
 
       <footer className="mt-auto text-center text-xs text-white/30 pb-6">
-        {brand} · Powered by Pixelset
+        {brand}
+        {!hideBranding && " · Powered by Pixelset"}
       </footer>
     </div>
   );

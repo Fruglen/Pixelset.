@@ -25,6 +25,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!signed) {
     if (typeof body.title === "string" && body.title.trim()) data.title = body.title.trim();
     if (typeof body.body === "string") data.body = body.body;
+    for (const k of ["brandLogoUrl", "headerImageUrl"] as const) {
+      if (typeof body[k] === "string") data[k] = body[k].trim().slice(0, 1000);
+    }
+    if (typeof body.brandColor === "string") data.brandColor = /^#[0-9a-fA-F]{6}$/.test(body.brandColor) ? body.brandColor : "";
     if (typeof body.secondSignerEmail === "string") data.secondSignerEmail = body.secondSignerEmail.trim();
     if (body.contactId !== undefined) {
       if (!body.contactId) data.contactId = null;

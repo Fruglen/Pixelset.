@@ -6,9 +6,14 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { href: "/store", label: "Overview" },
   { href: "/store/orders", label: "Orders" },
+  { href: "/store/products", label: "Products" },
   { href: "/store/price-sheets", label: "Price Sheets" },
+  { href: "/store/taxes", label: "Taxes" },
+  { href: "/store/shipping", label: "Shipping" },
   { href: "/store/coupons", label: "Coupons" },
   { href: "/store/gift-cards", label: "Gift Cards" },
+  { href: "/store/albums", label: "Albums" },
+  { href: "/store/courses", label: "Courses" },
   { href: "/store/settings", label: "Settings" },
 ];
 

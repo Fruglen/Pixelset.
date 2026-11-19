@@ -1,17 +1,20 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { resolveMobileApp } from "@/lib/mobile-app";
 
 // Per-collection web-app manifest, makes /app/[slug] installable with the
 // collection cover as the app icon.
 export async function GET(_req: Request, { params }: { params: { slug: string } }) {
-  const app = await db.mobileApp.findUnique({ where: { slug: params.slug } });
+  const resolved = await resolveMobileApp(params.slug);
+  const app = resolved?.app;
   if (!app || !app.enabled) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   return NextResponse.json(
     {
       name: app.appName,
       short_name: app.appName.length > 12 ? app.appName.slice(0, 12).trimEnd() : app.appName,
-      start_url: `/app/${app.slug}`,
+      // Phase 5B: per client installs open their own personalised page
+      id: `/app/${params.slug}`,
+      start_url: `/app/${params.slug}`,
       scope: `/`,
       display: "standalone",
       background_color: "#0a0a0a",

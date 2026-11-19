@@ -2,6 +2,9 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import SettingsClient from "./settings-client";
+import AccessGroupsSection from "./access-groups";
+import { dateInZone } from "@/lib/utils";
+import { resendConnected } from "@/lib/mailer";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +12,10 @@ export default async function SettingsTab({ params }: { params: { id: string } }
   const user = (await getCurrentUser())!;
   const collection = await db.collection.findFirst({
     where: { id: params.id, userId: user.id },
-    include: { photos: { orderBy: { order: "asc" }, select: { id: true, url: true, mediaType: true, posterUrl: true } } },
+    include: {
+      photos: { orderBy: { order: "asc" }, select: { id: true, url: true, mediaType: true, posterUrl: true } },
+      sets: { orderBy: { order: "asc" }, select: { id: true, name: true, clientExclusive: true } },
+    },
   });
   if (!collection) notFound();
   const priceSheets = await db.priceSheet.findMany({
@@ -49,15 +55,36 @@ export default async function SettingsTab({ params }: { params: { id: string } }
         allowSingle: collection.allowSingle,
         allowZip: collection.allowZip,
         videoDownloadEnabled: collection.videoDownloadEnabled,
-        expiresAt: collection.expiresAt ? collection.expiresAt.toISOString().slice(0, 10) : "",
+        // The date is shown as the photographer sees it in their own timezone.
+        expiresAt: collection.expiresAt ? dateInZone(collection.expiresAt, user.timezone) : "",
+        expired: !!collection.expiresAt && collection.expiresAt < new Date(),
+        expiryReminderDays: collection.expiryReminderDays,
+        expiryReminderSentAt: collection.expiryReminderSentAt ? collection.expiryReminderSentAt.toISOString() : "",
+        coverImageUrl: collection.coverImageUrl,
+        campaignOptIn: collection.campaignOptIn,
         expiryReminder: collection.expiryReminder,
         storeEnabled: collection.storeEnabled,
         priceSheetId: collection.priceSheetId,
         slideshowEnabled: collection.slideshowEnabled,
         slideshowMusicUrl: collection.slideshowMusicUrl,
+        coverAnimation: collection.coverAnimation,
+        navStyle: collection.navStyle,
+        seoIndexing: collection.seoIndexing,
+        showOnHomepage: collection.showOnHomepage,
+        clientOnlyDownloads: collection.clientOnlyDownloads,
+        emailedDownloadAll: collection.emailedDownloadAll,
+        zipPartSize: collection.zipPartSize,
+        desktopOnlyZip: collection.desktopOnlyZip,
+        favoritesEnabled: collection.favoritesEnabled,
+        socialSharing: collection.socialSharing,
+        galleryAssist: collection.galleryAssist,
+        language: collection.language,
       }}
       photos={collection.photos}
       priceSheets={priceSheets}
+      timezone={user.timezone}
+      mailConnected={resendConnected()}
+      extraDownload={<AccessGroupsSection collectionId={collection.id} slug={collection.slug} sets={collection.sets} />}
     />
   );
 }

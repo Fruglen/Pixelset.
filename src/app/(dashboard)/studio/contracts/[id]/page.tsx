@@ -48,6 +48,11 @@ export default async function ContractEditPage({ params }: { params: { id: strin
         secondSignerIp: contract.secondSignerIp,
         secondSignerUserAgent: contract.secondSignerUserAgent,
         sentAt: contract.sentAt?.toISOString() ?? "",
+        brandLogoUrl: contract.brandLogoUrl,
+        brandColor: contract.brandColor,
+        headerImageUrl: contract.headerImageUrl,
+        signatureImage: contract.signatureImage,
+        secondSignatureImage: contract.secondSignatureImage,
       }}
       contacts={contacts.map((c) => ({ id: c.id, name: c.name }))}
     />

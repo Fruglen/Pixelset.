@@ -119,6 +119,9 @@ export function SessionsClient({ bookingSlug, types }: { bookingSlug: string; ty
           Session types appear on your booking site at <span className="font-mono text-xs">/book/{bookingSlug}</span>.
         </p>
         <div className="flex gap-2">
+          <Link href="/studio/calendar?add=1" className="btn-secondary">
+            + Book for a client
+          </Link>
           <button
             className="btn-secondary"
             onClick={() => {

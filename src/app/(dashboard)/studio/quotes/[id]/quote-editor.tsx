@@ -27,7 +27,8 @@ export function QuoteEditor({
     token: string;
     contactId: string;
     validUntil: string;
-    items: { description: string; qty: number; unitCents: number }[];
+    items: { description: string; qty: number; unitCents: number; kind: string; group: string; preselected: boolean }[];
+    selection: number[] | null;
     taxRate: number;
     discountType: string;
     discountValue: number;
@@ -44,8 +45,15 @@ export function QuoteEditor({
   const [validUntil, setValidUntil] = useState(quote.validUntil);
   const [items, setItems] = useState(
     quote.items.length
-      ? quote.items.map((it) => ({ description: it.description, qty: String(it.qty), unit: (it.unitCents / 100).toFixed(2) }))
-      : [{ description: "", qty: "1", unit: "" }]
+      ? quote.items.map((it) => ({
+          description: it.description,
+          qty: String(it.qty),
+          unit: (it.unitCents / 100).toFixed(2),
+          kind: it.kind,
+          group: it.group,
+          preselected: it.preselected,
+        }))
+      : [{ description: "", qty: "1", unit: "", kind: "fixed", group: "", preselected: false }]
   );
   const [taxRate, setTaxRate] = useState(String(quote.taxRate));
   const [discountType, setDiscountType] = useState(quote.discountType);
@@ -58,10 +66,18 @@ export function QuoteEditor({
   const [error, setError] = useState("");
 
   const total = useMemo(() => {
-    const subtotal = items.reduce(
-      (n, it) => n + Math.round((parseFloat(it.qty) || 0) * Math.round((parseFloat(it.unit) || 0) * 100)),
-      0
-    );
+    // Default client selection: fixed items, preselected extras, first or preselected package per group.
+    const groups = new Set<string>();
+    for (const it of items) if (it.kind === "package" && it.preselected) groups.add(it.group || "Package");
+    const subtotal = items.reduce((n, it) => {
+      const g = it.group || "Package";
+      let on = it.kind === "fixed" || (it.kind === "optional" && it.preselected);
+      if (it.kind === "package") {
+        on = it.preselected || !groups.has(g);
+        if (on) groups.add(g);
+      }
+      return on ? n + Math.round((parseFloat(it.qty) || 0) * Math.round((parseFloat(it.unit) || 0) * 100)) : n;
+    }, 0);
     let discount = 0;
     if (discountType === "PERCENT") discount = Math.round((subtotal * (parseFloat(discountValue) || 0)) / 100);
     else if (discountType === "FIXED") discount = Math.round((parseFloat(discountValue) || 0) * 100);
@@ -85,6 +101,9 @@ export function QuoteEditor({
             description: it.description,
             qty: parseFloat(it.qty) || 0,
             unitCents: Math.round((parseFloat(it.unit) || 0) * 100),
+            kind: it.kind,
+            group: it.group,
+            preselected: it.preselected,
           })),
         taxRate: parseFloat(taxRate) || 0,
         discountType,
@@ -219,7 +238,7 @@ export function QuoteEditor({
         <h3 className="font-display text-lg">Line items</h3>
         <div className="space-y-2">
           {items.map((it, i) => (
-            <div key={i} className="grid grid-cols-[1fr_70px_100px_auto] gap-2 items-center">
+            <div key={i} className="grid grid-cols-[1fr_70px_100px_120px_auto] gap-2 items-center">
               <input
                 className="input"
                 placeholder="Description"
@@ -240,6 +259,16 @@ export function QuoteEditor({
                 value={it.unit}
                 onChange={(e) => setItems(items.map((x, j) => (j === i ? { ...x, unit: e.target.value } : x)))}
               />
+              <select
+                className="input text-xs"
+                disabled={locked}
+                value={it.kind}
+                onChange={(e) => setItems(items.map((x, j) => (j === i ? { ...x, kind: e.target.value } : x)))}
+              >
+                <option value="fixed">Included</option>
+                <option value="optional">Optional extra</option>
+                <option value="package">Package choice</option>
+              </select>
               {!locked ? (
                 <button className="text-xs text-red-600 underline" onClick={() => setItems(items.filter((_, j) => j !== i))}>
                   ✕
@@ -247,11 +276,36 @@ export function QuoteEditor({
               ) : (
                 <span />
               )}
+              {it.kind !== "fixed" ? (
+                <div className="col-span-5 flex items-center gap-3 text-xs text-neutral-500 pl-1 -mt-1">
+                  {it.kind === "package" ? (
+                    <label className="flex items-center gap-1.5">
+                      Choice group
+                      <input
+                        className="input !py-1 !w-40 text-xs"
+                        placeholder="Coverage"
+                        disabled={locked}
+                        value={it.group}
+                        onChange={(e) => setItems(items.map((x, j) => (j === i ? { ...x, group: e.target.value } : x)))}
+                      />
+                    </label>
+                  ) : null}
+                  <label className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      disabled={locked}
+                      checked={it.preselected}
+                      onChange={(e) => setItems(items.map((x, j) => (j === i ? { ...x, preselected: e.target.checked } : x)))}
+                    />
+                    Selected by default
+                  </label>
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
         {!locked ? (
-          <button className="btn-secondary !py-1.5 text-xs" onClick={() => setItems([...items, { description: "", qty: "1", unit: "" }])}>
+          <button className="btn-secondary !py-1.5 text-xs" onClick={() => setItems([...items, { description: "", qty: "1", unit: "", kind: "fixed", group: "", preselected: false }])}>
             + Line item
           </button>
         ) : null}
@@ -275,7 +329,16 @@ export function QuoteEditor({
             </div>
           ) : null}
         </div>
-        <div className="flex justify-end text-sm font-semibold">Total {money(total)}</div>
+        <p className="text-xs text-neutral-400">
+          Package choices: the client picks exactly one item from each choice group. Optional extras: the client ticks the ones they
+          want. The total recomputes on their screen before they accept, and only their selection goes onto the invoice.
+        </p>
+        {quote.selection ? (
+          <p className="text-xs text-emerald-700">
+            Client selected: {quote.selection.map((i) => quote.items[i]?.description).filter(Boolean).join(", ")}
+          </p>
+        ) : null}
+        <div className="flex justify-end text-sm font-semibold">Total with default selection {money(total)}</div>
       </section>
 
       <section className="card p-5">

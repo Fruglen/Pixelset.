@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { triggerById, parseConditions, parseActions } from "@/lib/automations";
+import { triggerById, parseConditions, parseActions, parseSteps } from "@/lib/automations";
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
       trigger: trigger.id,
       conditions: JSON.stringify(conditions),
       actions: JSON.stringify(actions),
+      steps: JSON.stringify(parseSteps(JSON.stringify(body.steps ?? []))),
       active: body.active !== false,
     },
   });

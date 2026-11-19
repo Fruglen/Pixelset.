@@ -53,6 +53,8 @@ export default async function CalendarPage({
     contactName: b.contact?.name ?? "",
     hasInvoice: "invoices" in b ? b.invoices.length > 0 : false,
     hasContract: "contract" in b ? !!b.contract : false,
+    clientToken: b.clientToken ?? "",
+    approvalState: b.approvalState,
   });
 
   return (

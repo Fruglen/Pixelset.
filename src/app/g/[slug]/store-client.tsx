@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { GalleryPhoto } from "./gallery-view";
+import { COUNTRIES, TAX_REGIONS, formatStoreMoney } from "@/lib/store-rates";
 
 export type StoreData = {
   products: {
@@ -10,7 +11,13 @@ export type StoreData = {
     category: string;
     description: string;
     variants: { id: string; name: string; priceCents: number }[];
+    frames?: { name: string; priceCents: number }[];
+    includes?: string[];
   }[];
+  storeOpen?: boolean;
+  closedMessage?: string;
+  currency?: string;
+  taxMode?: string;
   taxEnabled: boolean;
   taxRate: number;
   digitalLicense: string;
@@ -22,6 +29,7 @@ type CartLine = {
   variantId: string;
   photoId: string;
   qty: number;
+  frame?: string; // Phase 5B: chosen frame option name
   // display snapshots
   productName: string;
   variantName: string;
@@ -42,7 +50,19 @@ type Totals = {
   freeProductName: string;
 };
 
-const money = (c: number) => `$${(c / 100).toFixed(2)}`;
+// Store currency (set from the photographer's store settings on each render).
+let storeCurrency = "USD";
+const money = (c: number) => formatStoreMoney(c, storeCurrency);
+
+type ShippingGroup = {
+  group: string;
+  label: string;
+  options: { id: string; name: string; speed: string; cents: number }[];
+  selectedId: string;
+  selectedName: string;
+  cents: number;
+};
+type PaymentMethod = { id: string; label: string; instructions?: string };
 
 const CATEGORY_LABELS: Record<string, string> = {
   PRINT: "Prints",
@@ -50,9 +70,11 @@ const CATEGORY_LABELS: Record<string, string> = {
   METAL: "Metal",
   ACRYLIC: "Acrylic",
   WOOD: "Wood",
+  FRAMED: "Framed Prints & Wall Art",
   ALBUM: "Albums & Books",
   CARD: "Cards",
   DIGITAL: "Digital Downloads",
+  PACKAGE: "Packages",
 };
 
 export function useGalleryStore(slug: string, store: StoreData | null) {
@@ -86,8 +108,14 @@ export function useGalleryStore(slug: string, store: StoreData | null) {
   );
 
   const cartCount = cart.reduce((s, l) => s + l.qty, 0);
+  storeCurrency = store?.currency || "USD";
+  const closed = !!store && store.storeOpen === false;
 
-  const element = store ? (
+  const element = closed ? (
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] bg-white text-ink text-sm rounded-full shadow-lg px-5 py-2.5 border border-neutral-200">
+      {store?.closedMessage || "The store is closed right now, please check back soon."}
+    </div>
+  ) : store ? (
     <>
       {buyPhoto && (
         <BuyDialog
@@ -96,7 +124,11 @@ export function useGalleryStore(slug: string, store: StoreData | null) {
           onClose={() => setBuyPhoto(null)}
           onAdd={(line) => {
             const existing = cart.find(
-              (l) => l.productId === line.productId && l.variantId === line.variantId && l.photoId === line.photoId
+              (l) =>
+                l.productId === line.productId &&
+                l.variantId === line.variantId &&
+                l.photoId === line.photoId &&
+                (l.frame ?? "") === (line.frame ?? "")
             );
             const next = existing
               ? cart.map((l) => (l === existing ? { ...l, qty: l.qty + line.qty } : l))
@@ -132,7 +164,7 @@ export function useGalleryStore(slug: string, store: StoreData | null) {
   ) : null;
 
   return {
-    enabled: !!store && store.products.length > 0,
+    enabled: !!store && !closed && store.products.length > 0,
     cartCount,
     buy: (photo: GalleryPhoto) => setBuyPhoto(photo),
     openCart: () => setCartOpen(true),
@@ -167,10 +199,15 @@ function BuyDialog({
   const [variantId, setVariantId] = useState(product?.variants[0]?.id ?? "");
   const variant = product?.variants.find((v) => v.id === variantId) ?? product?.variants[0];
   const [qty, setQty] = useState(1);
+  const [frameName, setFrameName] = useState("");
+  const frames = product?.frames ?? [];
+  const frame = frames.find((f) => f.name === frameName);
+  const unit = (variant?.priceCents ?? 0) + (frame?.priceCents ?? 0);
 
   useEffect(() => {
     setVariantId(product?.variants[0]?.id ?? "");
     setQty(1);
+    setFrameName("");
   }, [productId, product]);
 
   if (!product || !variant) return null;
@@ -203,6 +240,11 @@ function BuyDialog({
               ))}
             </select>
             {product.description && <p className="text-xs text-neutral-500 mt-1">{product.description}</p>}
+            {product.includes && product.includes.length > 0 && (
+              <p className="text-xs text-neutral-600 mt-1">
+                <span className="font-medium">Includes:</span> {product.includes.join(", ")}
+              </p>
+            )}
           </div>
 
           <div>
@@ -224,6 +266,21 @@ function BuyDialog({
             </div>
           </div>
 
+          {frames.length > 0 && (
+            <div>
+              <label className="label">Frame</label>
+              <select className="input" value={frameName} onChange={(e) => setFrameName(e.target.value)}>
+                <option value="">{product.category === "FRAMED" ? "Choose a frame" : "No frame"}</option>
+                {frames.map((f) => (
+                  <option key={f.name} value={f.name}>
+                    {f.name}
+                    {f.priceCents ? `, +${money(f.priceCents)}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {product.category !== "DIGITAL" ? (
             <div>
               <label className="label">Quantity</label>
@@ -239,21 +296,23 @@ function BuyDialog({
 
           <button
             className="btn-primary w-full"
+            disabled={product.category === "FRAMED" && frames.length > 0 && !frame}
             onClick={() =>
               onAdd({
                 productId: product.id,
                 variantId: variant.id,
                 photoId: photo.id,
                 qty: product.category === "DIGITAL" ? 1 : qty,
+                frame: frame?.name,
                 productName: product.name,
-                variantName: variant.name,
-                unitCents: variant.priceCents,
+                variantName: frame ? `${variant.name}, ${frame.name}` : variant.name,
+                unitCents: unit,
                 photoUrl: photo.url,
                 photoName: photo.filename,
               })
             }
           >
-            Add to cart, {money(variant.priceCents * (product.category === "DIGITAL" ? 1 : qty))}
+            Add to cart, {money(unit * (product.category === "DIGITAL" ? 1 : qty))}
           </button>
         </div>
       </div>
@@ -287,7 +346,7 @@ function CartDrawer({
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {cart.length === 0 && <p className="text-sm text-neutral-400">Your cart is empty, tap the bag icon on any photo.</p>}
           {cart.map((l, i) => (
-            <div key={`${l.productId}-${l.variantId}-${l.photoId}`} className="flex gap-3 items-start">
+            <div key={`${l.productId}-${l.variantId}-${l.photoId}-${l.frame ?? ""}`} className="flex gap-3 items-start">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={l.photoUrl} alt="" className="h-16 w-16 object-cover rounded" />
               <div className="flex-1 min-w-0">
@@ -343,6 +402,13 @@ function CheckoutDialog({
   const [coupon, setCoupon] = useState("");
   const [giftCard, setGiftCard] = useState("");
   const [card, setCard] = useState("4242 4242 4242 4242");
+  const [country, setCountry] = useState("US");
+  const [region, setRegion] = useState("");
+  const [shipSel, setShipSel] = useState<Record<string, string>>({});
+  const [payMethod, setPayMethod] = useState("");
+  const [groups, setGroups] = useState<ShippingGroup[]>([]);
+  const [payMethods, setPayMethods] = useState<PaymentMethod[]>([]);
+  const [taxLabel, setTaxLabel] = useState("");
   const [totals, setTotals] = useState<Totals | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -350,6 +416,9 @@ function CheckoutDialog({
     orderNumber: string;
     totals: Totals;
     downloads: { photoName: string; productName: string; url: string; expires: string }[];
+    awaitingPayment: boolean;
+    offlineInstructions: string;
+    emailDelivered: boolean;
   } | null>(null);
 
   const hasPhysical = cart.some((l) => {
@@ -357,18 +426,27 @@ function CheckoutDialog({
     return p?.category !== "DIGITAL";
   });
 
-  const lines = cart.map((l) => ({ productId: l.productId, variantId: l.variantId, photoId: l.photoId, qty: l.qty }));
+  const lines = cart.map((l) => ({ productId: l.productId, variantId: l.variantId, photoId: l.photoId, qty: l.qty, frame: l.frame ?? "" }));
+  const regions = TAX_REGIONS.filter((r) => r.country === country);
+  const extras = { country: country === "OTHER" ? "" : country, region, shipping: shipSel, paymentMethod: payMethod };
 
   const preview = useCallback(async () => {
     const res = await fetch(`/api/gallery/${slug}/checkout`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lines, couponCode: coupon, giftCardCode: giftCard, confirm: false }),
+      body: JSON.stringify({ lines, couponCode: coupon, giftCardCode: giftCard, ...extras, confirm: false }),
     });
     const json = await res.json().catch(() => ({}));
-    if (res.ok) setTotals(json.totals);
+    if (res.ok) {
+      setError("");
+      setTotals(json.totals);
+      setGroups(json.shippingGroups ?? []);
+      setTaxLabel(json.taxLabel ?? "");
+      setPayMethods(json.paymentMethods ?? []);
+      if (!payMethod && json.paymentMethods?.[0]) setPayMethod(json.paymentMethods[0].id);
+    } else setError(json.error || "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coupon, giftCard, slug, JSON.stringify(lines)]);
+  }, [coupon, giftCard, slug, JSON.stringify(lines), JSON.stringify(extras)]);
 
   useEffect(() => {
     preview();
@@ -388,13 +466,21 @@ function CheckoutDialog({
         customerName: name,
         customerEmail: email,
         shippingAddress: address,
+        ...extras,
         confirm: true,
       }),
     });
     const json = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) return setError(json.error || "Could not place the order");
-    setDone({ orderNumber: json.orderNumber, totals: json.totals, downloads: json.downloads ?? [] });
+    setDone({
+      orderNumber: json.orderNumber,
+      totals: json.totals,
+      downloads: json.downloads ?? [],
+      awaitingPayment: !!json.awaitingPayment,
+      offlineInstructions: json.offlineInstructions ?? "",
+      emailDelivered: !!json.emailDelivered,
+    });
     onComplete();
   }
 
@@ -406,10 +492,25 @@ function CheckoutDialog({
             <p className="text-3xl mb-2">✓</p>
             <h3 className="font-display text-xl">Thank you, order {done.orderNumber}</h3>
             <p className="text-sm text-neutral-500 mt-1">
-              A confirmation was sent to the photographer.{" "}
-              {done.totals.total > 0 ? `${money(done.totals.total)} charged (mock payment).` : "Fully covered by gift card."}
+              {done.emailDelivered
+                ? "A confirmation email with your order details is on its way."
+                : "Your order was received. Email is not connected for this store, so keep this page for your records."}{" "}
+              {done.awaitingPayment
+                ? `${money(done.totals.total)} is due, paid offline.`
+                : done.totals.total > 0
+                  ? `${money(done.totals.total)} charged (mocked per the owner's payments exclusion).`
+                  : "Fully covered by gift card."}
             </p>
           </div>
+          {done.awaitingPayment && (
+            <div className="border border-amber-200 bg-amber-50 rounded-md p-4 text-sm space-y-1">
+              <p className="font-medium">How to pay</p>
+              <p className="text-neutral-600 whitespace-pre-line">
+                {done.offlineInstructions || "The photographer will contact you with payment details."}
+              </p>
+              <p className="text-xs text-neutral-500">Your order is processed, and any download links are emailed, once payment is received.</p>
+            </div>
+          )}
           {done.downloads.length > 0 && (
             <div className="border border-neutral-200 rounded-md p-4 space-y-2">
               <p className="text-sm font-medium">Your digital downloads</p>
@@ -460,6 +561,66 @@ function CheckoutDialog({
             <textarea className="input h-16" value={address} onChange={(e) => setAddress(e.target.value)} required />
           </div>
         )}
+        {(hasPhysical || store.taxEnabled) && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Country</label>
+              <select
+                className="input"
+                value={country}
+                onChange={(e) => {
+                  setCountry(e.target.value);
+                  setRegion("");
+                }}
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">{country === "CA" ? "Province" : "State"}</label>
+              {regions.length > 0 ? (
+                <select className="input" value={region} onChange={(e) => setRegion(e.target.value)} required={store.taxEnabled && store.taxMode === "AUTO"}>
+                  <option value="">Choose</option>
+                  {regions.map((r) => (
+                    <option key={r.code} value={r.code}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input className="input" value={region} onChange={(e) => setRegion(e.target.value)} placeholder="Region" />
+              )}
+            </div>
+          </div>
+        )}
+        {groups.map((g) =>
+          g.options.length > 0 ? (
+            <div key={g.group}>
+              <label className="label">Shipping{groups.length > 1 ? `, ${g.label.toLowerCase()}` : ""}</label>
+              <div className="space-y-1.5">
+                {g.options.map((o) => (
+                  <label key={o.id} className="flex items-center gap-2 text-sm border border-neutral-200 rounded-md px-3 py-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`ship-${g.group}`}
+                      checked={g.selectedId === o.id}
+                      onChange={() => setShipSel({ ...shipSel, [g.group]: o.id })}
+                    />
+                    <span className="flex-1">
+                      {o.name}
+                      {o.speed && <span className="text-xs text-neutral-400"> · {o.speed}</span>}
+                    </span>
+                    <span className="font-medium">{o.cents === 0 ? "Free" : money(o.cents)}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label">Coupon code</label>
@@ -483,7 +644,7 @@ function CheckoutDialog({
             <Row label="Subtotal" value={money(totals.subtotal)} />
             {totals.discount > 0 && <Row label="Discount" value={`−${money(totals.discount)}`} />}
             {hasPhysical && <Row label="Shipping" value={totals.shipping === 0 ? "Free" : money(totals.shipping)} />}
-            {store.taxEnabled && <Row label={`Tax (${store.taxRate}%)`} value={money(totals.tax)} />}
+            {store.taxEnabled && <Row label={taxLabel || "Tax"} value={money(totals.tax)} />}
             {totals.giftCard > 0 && <Row label="Gift card" value={`−${money(totals.giftCard)}`} />}
             <div className="flex justify-between font-medium border-t border-neutral-100 pt-1">
               <span>Total due</span>
@@ -492,17 +653,42 @@ function CheckoutDialog({
           </div>
         )}
 
-        {(totals?.total ?? 1) > 0 && (
+        {(totals?.total ?? 1) > 0 && payMethods.length > 1 && (
           <div>
-            <label className="label">Card number (mock payment, any number works)</label>
+            <label className="label">Payment</label>
+            <div className="flex gap-4 text-sm">
+              {payMethods.map((m) => (
+                <label key={m.id} className="flex items-center gap-2">
+                  <input type="radio" name="pay" checked={payMethod === m.id} onChange={() => setPayMethod(m.id)} />
+                  {m.id === "card" ? "Card" : "Pay offline"}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+        {(totals?.total ?? 1) > 0 && payMethod === "card" && (
+          <div>
+            <label className="label">Card number (mocked per the owner&rsquo;s payments exclusion, any number works)</label>
             <input className="input font-mono" value={card} onChange={(e) => setCard(e.target.value)} />
           </div>
+        )}
+        {(totals?.total ?? 1) > 0 && payMethod === "offline" && (
+          <p className="text-xs text-neutral-600 bg-neutral-50 rounded-md p-3 whitespace-pre-line">
+            {payMethods.find((m) => m.id === "offline")?.instructions || "The photographer will contact you with payment details."}
+          </p>
+        )}
+        {payMethods.length === 0 && (totals?.total ?? 0) > 0 && (
+          <p className="text-xs text-red-600">This store has no payment method switched on.</p>
         )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         {store.termsOfSale && <p className="text-[11px] text-neutral-400">{store.termsOfSale}</p>}
         <button className="btn-primary w-full" disabled={busy}>
-          {busy ? "Placing order…" : totals && totals.total === 0 ? "Place order" : `Pay ${totals ? money(totals.total) : ""}`}
+          {busy
+            ? "Placing order…"
+            : (totals && totals.total === 0) || payMethod === "offline"
+              ? "Place order"
+              : `Pay ${totals ? money(totals.total) : ""}`}
         </button>
       </form>
     </div>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { createLabOrder, LAB_STATUSES, sendLabOrder } from "@/lib/lab";
+import { applyLabStatus, createLabOrder, LAB_STATUSES, sendLabOrder } from "@/lib/lab";
 
 // Phase 5A, lab order actions on a store order:
 //   { action: "create" }                     generate the payload (orders placed before 5A)
@@ -30,6 +30,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!labOrder) return NextResponse.json({ error: "Lab order not found" }, { status: 404 });
 
   if (action === "send") {
+    if (order.paymentStatus === "AWAITING_PAYMENT") {
+      return NextResponse.json({ error: "Mark the offline payment as received before sending to the lab" }, { status: 400 });
+    }
     const result = await sendLabOrder(labOrder.id);
     if (!result.sent) return NextResponse.json({ error: result.detail }, { status: 400 });
     return NextResponse.json({ ok: true, detail: result.detail });
@@ -40,7 +43,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!LAB_STATUSES.includes(status as (typeof LAB_STATUSES)[number])) {
       return NextResponse.json({ error: "Unknown lab status" }, { status: 400 });
     }
-    await db.labOrder.update({ where: { id: labOrder.id }, data: { status } });
+    await applyLabStatus(labOrder.id, status, {
+      source: "PHOTOGRAPHER",
+      note: typeof body.note === "string" ? body.note : "",
+      trackingNumber: typeof body.trackingNumber === "string" ? body.trackingNumber : undefined,
+      carrier: typeof body.carrier === "string" ? body.carrier : undefined,
+    });
     return NextResponse.json({ ok: true });
   }
 

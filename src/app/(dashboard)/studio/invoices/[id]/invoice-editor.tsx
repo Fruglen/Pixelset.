@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { INVOICE_TEMPLATES } from "@/lib/invoice-templates";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -32,6 +33,7 @@ const BADGE: Record<string, string> = {
 export function InvoiceEditor({
   invoice,
   contacts,
+  photos = [],
 }: {
   invoice: {
     id: string;
@@ -51,8 +53,13 @@ export function InvoiceEditor({
     bookingTitle: string;
     quoteNumber: string;
     installments: InstRow[];
+    template: string;
+    reminderSchedule: number[];
+    remindersSent: number[];
+    featuredPhotoUrl: string;
   };
   contacts: { id: string; name: string }[];
+  photos?: { id: string; url: string; filename: string }[];
 }) {
   const router = useRouter();
   const locked = invoice.status === "PAID";
@@ -70,6 +77,10 @@ export function InvoiceEditor({
     invoice.discountType === "FIXED" ? (invoice.discountValue / 100).toFixed(2) : String(invoice.discountValue)
   );
   const [notes, setNotes] = useState(invoice.notes);
+  const [featuredPhotoUrl, setFeaturedPhotoUrl] = useState(invoice.featuredPhotoUrl);
+  const [template, setTemplate] = useState(invoice.template);
+  const [schedule, setSchedule] = useState<number[]>(invoice.reminderSchedule);
+  const [newOffset, setNewOffset] = useState("7");
   const [insts, setInsts] = useState<InstRow[]>(invoice.installments);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -108,6 +119,9 @@ export function InvoiceEditor({
       discountValue:
         discountType === "FIXED" ? Math.round((parseFloat(discountValue) || 0) * 100) : Math.round(parseFloat(discountValue) || 0),
       notes,
+      featuredPhotoUrl,
+      template,
+      reminderSchedule: schedule,
       installments: insts.map((i) => ({
         label: i.label,
         dueDate: i.dueDate,
@@ -202,6 +216,9 @@ export function InvoiceEditor({
             <>
               <button className="btn-secondary" disabled={busy} onClick={() => patch({ action: "revertToDraft" })}>
                 Revert to draft
+              </button>
+              <button className="btn-secondary" disabled={busy} onClick={() => patch({ action: "tapToPay" })}>
+                Tap to Pay
               </button>
               <button className="btn-primary" disabled={busy} onClick={() => patch({ action: "markPaid" })}>
                 Mark paid
@@ -440,6 +457,121 @@ export function InvoiceEditor({
             </div>
           </div>
         )}
+      </section>
+
+      <section className="card p-5 space-y-3">
+        <h2 className="font-display text-lg">Featured photo</h2>
+        <p className="text-sm text-neutral-500">
+          Shown at the top of the client's invoice and pay page. Pick one of your gallery photos or paste an
+          image address.
+        </p>
+        {featuredPhotoUrl ? (
+          <div className="flex items-start gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={featuredPhotoUrl} alt="Featured" className="w-40 h-28 object-cover rounded-md border border-neutral-200" />
+            <button className="text-sm underline text-red-500" disabled={locked} onClick={() => setFeaturedPhotoUrl("")}>
+              Remove
+            </button>
+          </div>
+        ) : null}
+        {photos.length > 0 ? (
+          <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+            {photos.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                disabled={locked}
+                title={p.filename}
+                onClick={() => setFeaturedPhotoUrl(p.url)}
+                className={`rounded-md overflow-hidden border ${
+                  featuredPhotoUrl === p.url ? "border-neutral-900 ring-1 ring-neutral-900" : "border-neutral-200"
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={p.url} alt={p.filename} className="w-full h-16 object-cover" />
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <input
+          className="input"
+          placeholder="…or paste an image address (https://…)"
+          disabled={locked}
+          value={featuredPhotoUrl}
+          onChange={(e) => setFeaturedPhotoUrl(e.target.value)}
+        />
+        <p className="text-xs text-neutral-400">Save the invoice to apply the change.</p>
+      </section>
+
+      <section className="card p-5 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-display text-lg">Template</h2>
+          <a className="text-sm underline text-neutral-500" href={`/pay/${invoice.token}?template=${template}`} target="_blank" rel="noreferrer">
+            Preview the client view ↗
+          </a>
+        </div>
+        <div className="grid sm:grid-cols-3 gap-2">
+          {INVOICE_TEMPLATES.map((t) => (
+            <label
+              key={t.id}
+              className={`card p-3 cursor-pointer text-sm ${template === t.id ? "ring-1 ring-neutral-900 border-neutral-900" : ""}`}
+            >
+              <input type="radio" className="mr-2" disabled={locked} checked={template === t.id} onChange={() => setTemplate(t.id)} />
+              <span className="font-medium">{t.name}</span>
+              <span className="block text-xs text-neutral-500 mt-1">{t.description}</span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="card p-5 space-y-3">
+        <div>
+          <h2 className="font-display text-lg">Payment reminders</h2>
+          <p className="text-sm text-neutral-500 mt-1">
+            Emailed to the client while a balance is outstanding, relative to the due date{dueDate ? "" : " (set a due date to enable)"}.
+            Edit the wording under Settings, Email templates, Invoice payment reminder.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {schedule.length === 0 ? <span className="text-sm text-neutral-400">No reminders scheduled.</span> : null}
+          {schedule.map((o) => (
+            <span key={o} className="inline-flex items-center gap-1.5 text-xs border border-neutral-300 rounded-full px-2.5 py-1">
+              {o === 0 ? "On the due date" : o < 0 ? `${-o} day${o === -1 ? "" : "s"} before` : `${o} day${o === 1 ? "" : "s"} after`}
+              {invoice.remindersSent.includes(o) ? <span className="text-emerald-600">sent</span> : null}
+              <button className="text-neutral-400 hover:text-red-600" disabled={locked} onClick={() => setSchedule(schedule.filter((x) => x !== o))}>
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <input className="input w-20" value={newOffset} onChange={(e) => setNewOffset(e.target.value)} />
+          <span className="text-neutral-500">days</span>
+          <button
+            className="btn-secondary"
+            disabled={locked}
+            onClick={() => {
+              const n = Math.abs(parseInt(newOffset) || 0);
+              setSchedule(Array.from(new Set([...schedule, -n])).sort((a, b) => a - b));
+            }}
+          >
+            Before due
+          </button>
+          <button className="btn-secondary" disabled={locked} onClick={() => setSchedule(Array.from(new Set([...schedule, 0])).sort((a, b) => a - b))}>
+            On due date
+          </button>
+          <button
+            className="btn-secondary"
+            disabled={locked}
+            onClick={() => {
+              const n = Math.abs(parseInt(newOffset) || 0);
+              setSchedule(Array.from(new Set([...schedule, n])).sort((a, b) => a - b));
+            }}
+          >
+            After due
+          </button>
+        </div>
+        <p className="text-xs text-neutral-400">Save the invoice to apply changes.</p>
       </section>
 
       <section className="card p-5">

@@ -3,8 +3,9 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { slugify } from "@/lib/utils";
 import { createWebsiteForUser } from "@/lib/site-service";
-import { SITE_PALETTES, SITE_FONT_THEMES, HEADER_STYLES } from "@/lib/website";
+import { SITE_PALETTES, SITE_FONT_THEMES, HEADER_STYLES, SPACING_OPTIONS, BUTTON_SHAPES, ARROW_STYLES } from "@/lib/website";
 import { templateById } from "@/lib/templates";
+import { updateSiteExt, ANIMATION_STYLES, ANIMATION_SPEEDS, type SiteExt } from "@/lib/site-ext";
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
@@ -41,13 +42,39 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
-  for (const key of ["logoText", "logoUrl", "tagline", "customDomain", "footerText", "socialInstagram", "socialFacebook", "socialPinterest"] as const) {
+  for (const key of ["logoText", "logoUrl", "tagline", "footerText", "socialInstagram", "socialFacebook", "socialPinterest"] as const) {
     if (typeof body[key] === "string") data[key] = body[key].trim();
   }
   if (typeof body.published === "boolean") data.published = body.published;
   if (typeof body.palette === "string" && SITE_PALETTES.some((p) => p.id === body.palette)) data.palette = body.palette;
   if (typeof body.fontTheme === "string" && SITE_FONT_THEMES.some((f) => f.id === body.fontTheme)) data.fontTheme = body.fontTheme;
   if (typeof body.headerStyle === "string" && HEADER_STYLES.some((h) => h.id === body.headerStyle)) data.headerStyle = body.headerStyle;
+  if (typeof body.spacing === "string" && SPACING_OPTIONS.some((o) => o.id === body.spacing)) data.spacing = body.spacing;
+  if (typeof body.buttonShape === "string" && BUTTON_SHAPES.some((o) => o.id === body.buttonShape)) data.buttonShape = body.buttonShape;
+  if (typeof body.arrowStyle === "string" && ARROW_STYLES.some((o) => o.id === body.arrowStyle)) data.arrowStyle = body.arrowStyle;
+
+  // Night build: extended settings (tracking, cookie banner, animation,
+  // site password, font overrides) live in their own columns.
+  const ext: Partial<SiteExt> = {};
+  if (typeof body.gaId === "string") ext.gaId = body.gaId.trim();
+  if (typeof body.fbPixelId === "string") ext.fbPixelId = body.fbPixelId.trim();
+  if (typeof body.cookieBannerEnabled === "boolean") ext.cookieBannerEnabled = body.cookieBannerEnabled;
+  if (typeof body.cookieBannerText === "string") ext.cookieBannerText = body.cookieBannerText.trim().slice(0, 300);
+  if (typeof body.animationStyle === "string" && ANIMATION_STYLES.some((a) => a.id === body.animationStyle)) ext.animationStyle = body.animationStyle;
+  if (typeof body.animationSpeed === "string" && ANIMATION_SPEEDS.some((a) => a.id === body.animationSpeed)) ext.animationSpeed = body.animationSpeed;
+  if (typeof body.sitePassword === "string") ext.sitePassword = body.sitePassword.trim().slice(0, 100);
+  if (typeof body.fontDisplay === "string") ext.fontDisplay = body.fontDisplay.trim().slice(0, 120);
+  if (typeof body.fontBody === "string") ext.fontBody = body.fontBody.trim().slice(0, 120);
+  if (Object.keys(ext).length > 0) {
+    try {
+      await updateSiteExt(website.id, ext);
+    } catch {
+      return NextResponse.json(
+        { error: "These settings are waiting on a database update that is still being applied. Try again shortly." },
+        { status: 503 }
+      );
+    }
+  }
 
   const updated = await db.website.update({ where: { id: website.id }, data });
   return NextResponse.json({ ok: true, slug: updated.slug });

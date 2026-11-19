@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { fmtMoney, logStudioMessage } from "@/lib/studio";
+import { recordPayment } from "@/lib/studio-flow";
+import { notify } from "@/lib/notify";
 
 const METHODS = ["card", "paypal", "manual"];
 
-// Mock retainer payment for the public booking flow. Flips the booking's
+// Mock retainer payment for the public booking flow (mocked per the owner's
+// payments exclusion). Flips the booking's
 // payment state and logs the (pretend) receipt, no real charge happens.
 export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
   const profile = await db.studioProfile.findUnique({ where: { bookingSlug: params.slug } });
@@ -37,5 +40,16 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
     body: `${booking.contact?.name ?? "A client"} paid ${fmtMoney(booking.retainerCents)} by ${method} for ${booking.title}.`,
     meta: `Mock payment · ${method}`,
   });
+  await recordPayment({
+    userId: profile.userId,
+    source: "BOOKING",
+    sourceId: booking.id,
+    label: booking.title,
+    payerName: booking.contact?.name,
+    payerEmail: booking.contact?.email,
+    amountCents: booking.retainerCents,
+    method,
+  });
+  await notify(profile.userId, "INVOICE_PAID", `${booking.contact?.name ?? "A client"} paid ${fmtMoney(booking.retainerCents)}`, booking.title, "/studio/reports");
   return NextResponse.json({ ok: true, paymentStatus: paid });
 }

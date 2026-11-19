@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { PROJECT_STAGES } from "@/lib/studio";
+import { onProjectDelivered } from "@/lib/studio-flow";
 
 async function own(id: string) {
   const user = await getCurrentUser();
@@ -27,8 +28,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
   }
   if (body.order !== undefined) data.order = Math.max(0, Math.round(Number(body.order) || 0));
+  if (typeof body.contactId === "string" || body.contactId === null) {
+    if (!body.contactId) data.contactId = null;
+    else {
+      const c = await db.contact.findFirst({ where: { id: body.contactId, userId: project.userId } });
+      if (c) data.contactId = c.id;
+    }
+  }
   await db.project.update({ where: { id: project.id }, data });
-  return NextResponse.json({ ok: true });
+  // Phase 5B: post delivery feedback questionnaire goes out once when a card reaches Delivered.
+  let feedback = "";
+  if (data.stage === "DELIVERED" && project.stage !== "DELIVERED") {
+    const sent = await onProjectDelivered(project.id).catch(() => null);
+    if (sent) feedback = `Feedback questionnaire sent (${sent.note})`;
+  }
+  return NextResponse.json({ ok: true, feedback });
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {

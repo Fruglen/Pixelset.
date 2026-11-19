@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { BrandingFields } from "../branding-fields";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -46,6 +47,11 @@ interface ContractData {
   secondSignerIp: string;
   secondSignerUserAgent: string;
   sentAt: string;
+  brandLogoUrl: string;
+  brandColor: string;
+  headerImageUrl: string;
+  signatureImage: string;
+  secondSignatureImage: string;
 }
 
 export function ContractEditor({
@@ -64,6 +70,11 @@ export function ContractEditor({
     expiresAt: contract.expiresAt,
     scheduledSendAt: contract.scheduledSendAt,
     secondSignerEmail: contract.secondSignerEmail,
+  });
+  const [brand, setBrand] = useState({
+    brandLogoUrl: contract.brandLogoUrl,
+    brandColor: contract.brandColor,
+    headerImageUrl: contract.headerImageUrl,
   });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -94,6 +105,7 @@ export function ContractEditor({
       expiresAt: form.expiresAt || null,
       scheduledSendAt: form.scheduledSendAt || null,
       secondSignerEmail: form.secondSignerEmail,
+      ...brand,
     });
     setBusy(false);
     if (ok) {
@@ -110,6 +122,7 @@ export function ContractEditor({
       contactId: form.contactId || null,
       expiresAt: form.expiresAt || null,
       secondSignerEmail: form.secondSignerEmail,
+      ...brand,
       action: "send",
     });
     setBusy(false);
@@ -180,7 +193,12 @@ export function ContractEditor({
           <div className="grid sm:grid-cols-2 gap-5 text-sm">
             {contract.signedAt ? (
               <div>
+                {contract.signatureImage ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={contract.signatureImage} alt="Drawn signature" className="h-14 object-contain" />
+                ) : null}
                 <p className="font-display italic text-2xl">{contract.signerName}</p>
+                <p className="text-xs text-neutral-500">{contract.signatureImage ? "Drawn signature" : "Typed signature"}</p>
                 <p className="text-xs text-neutral-500 mt-1">
                   Signed {fmtDateTime(contract.signedAt)}
                   <br />
@@ -192,6 +210,10 @@ export function ContractEditor({
             ) : null}
             {contract.secondSignedAt ? (
               <div>
+                {contract.secondSignatureImage ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={contract.secondSignatureImage} alt="Drawn signature" className="h-14 object-contain" />
+                ) : null}
                 <p className="font-display italic text-2xl">{contract.secondSignerName}</p>
                 <p className="text-xs text-neutral-500 mt-1">
                   Second signer · {fmtDateTime(contract.secondSignedAt)}
@@ -264,6 +286,10 @@ export function ContractEditor({
             {contract.bookingTitle ? `Linked booking: ${contract.bookingTitle}.` : ""}
           </p>
         ) : null}
+      </section>
+
+      <section className="card p-5">
+        <BrandingFields value={brand} onChange={setBrand} disabled={signed} note="Shown on the client signing page: logo above the title, colour accents, and the header image across the top of the document." />
       </section>
 
       <section className="card p-5">

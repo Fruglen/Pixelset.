@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import PhotosClient from "./photos-client";
+import { resendConnected } from "@/lib/mailer";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,17 @@ export default async function PhotosTab({ params }: { params: { id: string } }) 
     },
   });
   if (!collection) notFound();
+  // Final pass: lazily deliver scheduled gallery invites whose time has come
+  // (same lazy pattern as the studio reminders).
+  const { processScheduledInvites } = await import("@/lib/invites");
+  processScheduledInvites(user.id).catch(() => {});
+  // Destinations for bulk copy: every collection of this photographer with its sets.
+  const targets = await db.collection.findMany({
+    where: { userId: user.id },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, name: true, sets: { orderBy: { order: "asc" }, select: { id: true, name: true } } },
+  });
+  targets.sort((a, b) => (a.id === collection.id ? -1 : b.id === collection.id ? 1 : 0));
 
   return (
     <PhotosClient
@@ -42,6 +54,8 @@ export default async function PhotosTab({ params }: { params: { id: string } }) 
           posterUrl: p.posterUrl,
           durationSec: p.durationSec,
           fileSize: p.fileSize,
+          starred: p.starred,
+          watermarkMode: p.watermarkMode,
         })),
       }))}
       quickShares={collection.quickShares.map((q) => ({
@@ -53,7 +67,11 @@ export default async function PhotosTab({ params }: { params: { id: string } }) 
         id: i.id,
         email: i.email,
         createdAt: i.createdAt.toISOString(),
+        status: i.status,
+        deliveryNote: i.deliveryNote,
       }))}
+      targets={targets}
+      mailConnected={resendConnected()}
     />
   );
 }

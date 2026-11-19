@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { PRICING } from "@/lib/pricing";
+import { ADD_ONS, PRICING } from "@/lib/pricing";
 
 export const metadata = {
   title: "Pricing, Pixelset",
@@ -36,7 +36,8 @@ export default function PricingPage() {
             month, billed yearly (monthly billing in parentheses).
           </p>
           <p className="text-xs text-neutral-400 mt-3">
-            This is a working replica, every feature below is unlocked in the app regardless of plan.
+            Plan limits and unlocks are enforced in the app. Billing itself is parked in this replica, so
+            subscriptions run in simulated mode and nothing is charged.
           </p>
         </div>
 
@@ -92,8 +93,31 @@ export default function PricingPage() {
           </section>
         ))}
 
+        <section className="mt-14" id="add-ons">
+          <div className="text-center mb-7">
+            <h2 className="font-display text-2xl">Add-ons</h2>
+            <p className="text-sm text-neutral-500 mt-1">Bolt-ons that ride on top of any plan, managed in Settings, Plan.</p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {ADD_ONS.map((addon) => (
+              <div key={addon.id} className="rounded-xl border border-neutral-200 p-5 flex flex-col">
+                <p className="text-sm font-medium">{addon.name}</p>
+                <p className="mt-2">
+                  <span className="font-display text-3xl">{addon.price}</span>
+                  <span className="text-sm text-neutral-400"> {addon.unit}</span>
+                </p>
+                <p className="text-sm text-neutral-600 flex-1 mt-2">{addon.blurb}</p>
+                <Link href="/signup" className="mt-5 text-center text-sm rounded-md py-2 border border-neutral-300 hover:bg-neutral-50">
+                  Add in Settings, Plan
+                </Link>
+              </div>
+            ))}
+          </div>
+        </section>
+
         <p className="text-center text-xs text-neutral-400 mt-16">
-          All prices USD. Photo storage tiers are deliberately not part of this product.
+          All prices USD. Subscriptions auto renew; plan changes are prorated; cancellations are not refunded and
+          paid access runs to the end of the period. Photo storage tiers are deliberately not part of this product.
         </p>
       </div>
     </div>

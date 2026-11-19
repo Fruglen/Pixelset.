@@ -17,6 +17,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const data: Record<string, unknown> = {};
   if (typeof body.isPrivate === "boolean") data.isPrivate = body.isPrivate;
   if (typeof body.order === "number") data.order = body.order;
+  // Phase 5B quick actions
+  if (typeof body.starred === "boolean") data.starred = body.starred;
+  if (typeof body.watermarkMode === "string" && ["on", "off", "inherit"].includes(body.watermarkMode)) data.watermarkMode = body.watermarkMode;
+  if (typeof body.filename === "string" && body.filename.trim()) {
+    const ext = photo.filename.match(/\.[a-z0-9]+$/i)?.[0] ?? "";
+    let next = body.filename.trim().replace(/[^a-zA-Z0-9._ -]+/g, "_").slice(0, 120);
+    if (ext && !next.toLowerCase().endsWith(ext.toLowerCase())) next += ext;
+    data.filename = next;
+  }
   if (typeof body.setId === "string" && body.setId !== photo.setId) {
     const set = await db.photoSet.findFirst({
       where: { id: body.setId, collectionId: photo.collectionId },

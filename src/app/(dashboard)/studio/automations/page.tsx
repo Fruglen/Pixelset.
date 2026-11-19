@@ -33,11 +33,13 @@ export default async function AutomationsPage() {
         trigger: a.trigger,
         conditions: JSON.parse(a.conditions),
         actions: JSON.parse(a.actions),
+        steps: JSON.parse(a.steps || "[]"),
         active: a.active,
         runs: a.runs.map((r) => ({
           id: r.id,
           targetLabel: r.targetLabel,
           status: r.status,
+          step: r.step,
           detail: r.detail,
           createdAt: r.createdAt.toISOString(),
         })),

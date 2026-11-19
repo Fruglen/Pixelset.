@@ -16,6 +16,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = await req.json();
   const data: Record<string, unknown> = {};
   if (typeof body.name === "string" && body.name.trim()) data.name = body.name.trim();
+  if (body.kind === "STANDARD" || body.kind === "FEEDBACK") data.kind = body.kind;
+  // Phase 5B: make (or stop making) this the questionnaire auto-sent after delivery
+  if (typeof body.useAfterDelivery === "boolean") {
+    const profile = await db.studioProfile.findUnique({ where: { userId: q.userId } });
+    if (body.useAfterDelivery) {
+      await db.studioProfile.update({ where: { userId: q.userId }, data: { feedbackQuestionnaireId: q.id } });
+    } else if (profile?.feedbackQuestionnaireId === q.id) {
+      await db.studioProfile.update({ where: { userId: q.userId }, data: { feedbackQuestionnaireId: "" } });
+    }
+  }
+  if (body.testimonialResponseId && typeof body.testimonial === "boolean") {
+    await db.questionnaireResponse.updateMany({ where: { id: String(body.testimonialResponseId), questionnaireId: q.id }, data: { testimonial: body.testimonial } });
+  }
   if (Array.isArray(body.fields)) {
     const fields = body.fields
       .filter((f: Record<string, unknown>) => f && typeof f.label === "string" && (f.label as string).trim())

@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { brandFor, brandVars } from "@/lib/brand";
+import { BrandMark } from "@/components/brand-mark";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
@@ -33,12 +35,14 @@ export default async function BookingSitePage({ params }: { params: { slug: stri
   const regular = sessionTypes.filter((t) => !t.isMini && t.active);
   const minis = sessionTypes.filter((t) => t.isMini && t.published && t.dates.length > 0);
 
+  const brand = await brandFor(user.id);
   return (
-    <div className="min-h-screen bg-[#faf9f7] text-ink">
+    <div className="min-h-screen bg-[#faf9f7] text-ink branded" style={brandVars(brand)}>
       <header className="border-b border-neutral-200 bg-white">
         <div className="max-w-3xl mx-auto px-6 py-8 text-center">
+          {brand.logoUrl ? <div className="mb-3"><BrandMark brand={brand} /></div> : null}
           <p className="text-xs uppercase tracking-[0.25em] text-neutral-400">Booking</p>
-          <h1 className="font-display text-3xl mt-2">{user.businessName || user.name}</h1>
+          <h1 className="font-display text-3xl mt-2" style={brand.custom ? { color: brand.color } : undefined}>{user.businessName || user.name}</h1>
           {profile.welcomeText ? (
             <p className="text-sm text-neutral-500 mt-3 max-w-xl mx-auto">{profile.welcomeText}</p>
           ) : null}

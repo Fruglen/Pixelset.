@@ -2,12 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { slugify } from "@/lib/utils";
+import { WEBSITE_LIMITS, capMessage, planFor, tierLabel } from "@/lib/plans";
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const website = await db.website.findUnique({ where: { userId: user.id } });
   if (!website) return NextResponse.json({ error: "No website" }, { status: 404 });
+  // Night build (Pricing lane): Website Free plan cap, 5 blog posts.
+  {
+    const plan = await planFor(user.id);
+    const limit = WEBSITE_LIMITS[plan.website].posts;
+    if (Number.isFinite(limit)) {
+      const count = await db.blogPost.count({ where: { websiteId: website.id } });
+      if (count >= limit) {
+        return NextResponse.json({ error: capMessage("blog posts", limit, tierLabel("website", plan.website)) }, { status: 403 });
+      }
+    }
+  }
 
   const body = await req.json();
   const title = typeof body.title === "string" && body.title.trim() ? body.title.trim() : "Untitled post";

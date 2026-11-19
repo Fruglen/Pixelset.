@@ -17,6 +17,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = await req.json();
   const data: Record<string, unknown> = {};
   if (typeof body.active === "boolean") data.active = body.active;
+  if (typeof body.showBanner === "boolean") data.showBanner = body.showBanner;
+  if (typeof body.bannerText === "string") data.bannerText = body.bannerText.trim().slice(0, 140);
   await db.coupon.update({ where: { id: coupon.id }, data });
   return NextResponse.json({ ok: true });
 }

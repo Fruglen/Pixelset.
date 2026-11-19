@@ -6,7 +6,7 @@ const execFileAsync = promisify(execFile);
 
 // Phase 5A, video + RAW media handling for gallery uploads.
 
-export const VIDEO_EXTS = ["mp4", "mov", "m4v"];
+export const VIDEO_EXTS = ["mp4", "mov", "m4v", "avi"];
 export const RAW_EXTS = ["cr2", "cr3", "nef", "arw", "dng", "raf", "orf", "rw2"];
 
 export function fileExt(name: string): string {
@@ -106,7 +106,38 @@ const CONTENT_TYPES: Record<string, string> = {
   mp4: "video/mp4",
   m4v: "video/x-m4v",
   mov: "video/quicktime",
+  avi: "video/x-msvideo",
 };
+
+/**
+ * Phase 5B: researched per-format upload limits. JPEG and PNG up to 100 MB,
+ * GIF up to 85 MB, other images 100 MB, RAW originals 200 MB, video files 4 GB
+ * (videos are additionally capped at 4K resolution).
+ */
+export function uploadLimitBytes(name: string, mediaType: string): number {
+  const ext = fileExt(name);
+  const MB = 1024 * 1024;
+  if (mediaType === "VIDEO") return 4096 * MB;
+  if (mediaType === "RAW") return 200 * MB;
+  if (ext === "gif") return 85 * MB;
+  return 100 * MB;
+}
+
+export const UPLOAD_LIMITS_TEXT = "JPEG and PNG up to 100 MB, GIF up to 85 MB, RAW up to 200 MB, MP4, MOV, AVI and M4V video up to 4K and 4 GB";
+
+/** Transcode a video (AVI) to a browser playable MP4. */
+export async function transcodeToMp4(input: string, output: string): Promise<boolean> {
+  try {
+    await execFileAsync(
+      "ffmpeg",
+      ["-v", "error", "-i", input, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", "-y", output],
+      { timeout: 15 * 60 * 1000 }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function contentTypeFor(filename: string): string {
   return CONTENT_TYPES[fileExt(filename)] ?? "application/octet-stream";

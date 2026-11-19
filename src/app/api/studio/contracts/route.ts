@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { fmtMoney, renderSmartFields, retainerAmount } from "@/lib/studio";
+import { STUDIO_LIMITS, capMessage, planFor, tierLabel } from "@/lib/plans";
 import { formatDate } from "@/lib/utils";
 
 // Create a contract from a template (smart fields rendered against the chosen
@@ -9,6 +10,17 @@ import { formatDate } from "@/lib/utils";
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Night build (Pricing lane): Studio Manager Free plan cap, 3 contracts.
+  {
+    const plan = await planFor(user.id);
+    const limit = STUDIO_LIMITS[plan.studio].contracts;
+    if (Number.isFinite(limit)) {
+      const count = await db.contract.count({ where: { userId: user.id } });
+      if (count >= limit) {
+        return NextResponse.json({ error: capMessage("contracts", limit, tierLabel("studio", plan.studio)) }, { status: 403 });
+      }
+    }
+  }
   const body = await req.json();
 
   const template =
@@ -52,6 +64,9 @@ export async function POST(req: NextRequest) {
       title,
       body: rendered,
       status: "DRAFT",
+      brandLogoUrl: template?.brandLogoUrl ?? "",
+      brandColor: template?.brandColor ?? "",
+      headerImageUrl: template?.headerImageUrl ?? "",
     },
   });
   return NextResponse.json({ id: contract.id });

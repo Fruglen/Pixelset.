@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getStudioProfile } from "@/lib/studio";
 import { SessionEditor } from "./session-editor";
+import { STUDIO_LIMITS, planFor } from "@/lib/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,11 @@ export default async function SessionTypeEditPage({ params }: { params: { id: st
         coverUrl: t.coverUrl,
         durationMin: t.durationMin,
         bufferMin: t.bufferMin,
+        bufferBeforeMin: t.bufferBeforeMin,
+        availability: t.availability,
+        remindersEnabled: t.remindersEnabled,
+        reminderHoursBefore: t.reminderHoursBefore,
+        meetingLink: t.meetingLink,
         priceCents: t.priceCents,
         taxRate: t.taxRate,
         locationType: t.locationType,
@@ -55,6 +61,7 @@ export default async function SessionTypeEditPage({ params }: { params: { id: st
         cancellationPolicy: t.cancellationPolicy,
         retainerType: t.retainerType,
         retainerValue: t.retainerValue,
+        requiresApproval: t.requiresApproval,
         contractTemplateId: t.contractTemplateId ?? "",
         questionnaireId: t.questionnaireId ?? "",
         active: t.active,
@@ -90,6 +97,7 @@ export default async function SessionTypeEditPage({ params }: { params: { id: st
       }))}
       templates={templates.map((x) => ({ id: x.id, name: x.name }))}
       questionnaires={questionnaires.map((x) => ({ id: x.id, name: x.name }))}
+      studioPro={STUDIO_LIMITS[(await planFor(user.id)).studio].manualApproval}
     />
   );
 }

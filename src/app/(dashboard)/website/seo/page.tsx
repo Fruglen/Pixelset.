@@ -3,6 +3,9 @@ import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { parseBlocks, collectImages } from "@/lib/blocks";
 import { SeoClient } from "./seo-client";
+import { LinkChecker } from "./link-checker";
+import { SubdirectoryCard } from "./subdirectory-card";
+import { subdomainUrl } from "@/lib/site-domains";
 
 export const dynamic = "force-dynamic";
 
@@ -30,11 +33,15 @@ export default async function WebsiteSeoPage() {
   });
 
   return (
+    <div className="space-y-6">
     <SeoClient
       siteSlug={website.slug}
       logoText={website.logoText}
       pages={pages}
       redirects={website.redirects.map((r) => ({ id: r.id, fromPath: r.fromPath, toPath: r.toPath }))}
     />
+      <LinkChecker />
+      <SubdirectoryCard upstream={subdomainUrl(website.slug)} />
+    </div>
   );
 }

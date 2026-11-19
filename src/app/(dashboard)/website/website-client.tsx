@@ -126,12 +126,49 @@ interface PageRow {
   blockCount: number;
 }
 
-export function PagesList({ pages, siteSlug }: { pages: PageRow[]; siteSlug: string }) {
+export function PagesList({ pages, siteSlug, landings }: { pages: PageRow[]; siteSlug: string; landings: { id: string; name: string; desc: string }[] }) {
   const router = useRouter();
   const [adding, setAdding] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
+  const [landingOpen, setLandingOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const [importCode, setImportCode] = useState("");
+  const [importError, setImportError] = useState("");
 
+  async function importSharedPage() {
+    setImportError("");
+    setBusy(true);
+    const res = await fetch("/api/website/share/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: importCode }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) return setImportError(data.error ?? "That code is not valid");
+    if (data.block) return setImportError("That code is a single block. Import it inside the page editor instead.");
+    setImportCode("");
+    setImportOpen(false);
+    setNote(`Imported "${data.page?.title ?? "page"}" as a new draft page.`);
+    router.refresh();
+  }
+
+  async function addLanding(id: string) {
+    setBusy(true);
+    const res = await fetch("/api/website/pages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ landing: id }),
+    });
+    setBusy(false);
+    if (res.ok) {
+      const data = await res.json();
+      router.push(`/website/pages/${data.id}`);
+      router.refresh();
+    }
+  }
+  const [newTitle, setNewTitle] = useState("");
   async function patchPage(id: string, body: Record<string, unknown>) {
     await fetch(`/api/website/pages/${id}`, {
       method: "PATCH",
@@ -196,9 +233,40 @@ export function PagesList({ pages, siteSlug }: { pages: PageRow[]; siteSlug: str
             <button className="btn-secondary" onClick={() => setAdding(false)}>Cancel</button>
           </div>
         ) : (
-          <button className="btn-primary" onClick={() => setAdding(true)}>+ Custom page</button>
+          <div className="flex gap-2">
+            <button className="btn-secondary" onClick={() => setImportOpen((o) => !o)}>Import shared page</button>
+            <button className="btn-secondary" onClick={() => setLandingOpen((o) => !o)}>+ Landing page</button>
+            <button className="btn-primary" onClick={() => setAdding(true)}>+ Custom page</button>
+          </div>
         )}
       </div>
+      {note ? <p className="text-sm text-emerald-700 mb-3">{note}</p> : null}
+      {importOpen ? (
+        <div className="card p-4 mb-4">
+          <p className="text-sm font-medium mb-2">Import a page from a share code</p>
+          <textarea className="input" rows={3} placeholder="Paste a share code (PXS1.…)" value={importCode} onChange={(e) => setImportCode(e.target.value)} />
+          {importError ? <p className="text-sm text-red-600 mt-2">{importError}</p> : null}
+          <div className="flex gap-2 mt-3">
+            <button className="btn-primary" disabled={busy || !importCode.trim()} onClick={importSharedPage}>Import page</button>
+            <button className="btn-secondary" onClick={() => setImportOpen(false)}>Cancel</button>
+          </div>
+          <p className="text-xs text-neutral-400 mt-2">The page arrives as a new draft page with fresh block ids. Publish when you are ready.</p>
+        </div>
+      ) : null}
+      {landingOpen ? (
+        <div className="card p-4 mb-4">
+          <p className="text-sm font-medium mb-3">Prebuilt landing pages</p>
+          <div className="grid md:grid-cols-4 gap-3">
+            {landings.map((l) => (
+              <button key={l.id} disabled={busy} onClick={() => addLanding(l.id)} className="border border-neutral-200 rounded-md p-3 text-left hover:border-neutral-900 transition-colors">
+                <p className="text-sm font-medium">{l.name}</p>
+                <p className="text-xs text-neutral-500 mt-1">{l.desc}</p>
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-neutral-400 mt-3">Each adds a ready made page to your draft that you can edit block by block. Publish changes to put it live.</p>
+        </div>
+      ) : null}
 
       <div className="card divide-y divide-neutral-100">
         {pages.map((page, i) => (
@@ -227,13 +295,27 @@ export function PagesList({ pages, siteSlug }: { pages: PageRow[]; siteSlug: str
               In nav
             </label>
             <a
-              href={`/site/${siteSlug}${page.slug ? `/${page.slug}` : ""}`}
+              href={`/api/website/preview?mode=draft&to=${encodeURIComponent(`/site/${siteSlug}${page.slug ? `/${page.slug}` : ""}`)}`}
               target="_blank"
               rel="noreferrer"
               className="text-xs text-neutral-500 hover:text-neutral-900 underline"
             >
-              View
+              Preview
             </a>
+            <button
+              className="text-xs text-neutral-500 hover:text-neutral-900 underline"
+              title="Copy a share code for this page"
+              onClick={async () => {
+                const res = await fetch(`/api/website/pages/${page.id}/share`);
+                const data = await res.json().catch(() => ({}));
+                if (data.code) {
+                  await navigator.clipboard.writeText(data.code).catch(() => {});
+                  setNote(`Share code for "${page.title}" copied. Anyone with Pixelset can import it from their Pages list.`);
+                }
+              }}
+            >
+              Share
+            </button>
             <Link href={`/website/pages/${page.id}`} className="btn-secondary !py-1.5 !px-3 text-xs">
               Edit blocks
             </Link>

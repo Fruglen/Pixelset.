@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { convertQuoteToInvoice, logStudioMessage } from "@/lib/studio";
+import { convertQuoteToInvoice, fmtMoney, logStudioMessage, calcTotals, parseQuoteItems, selectedQuoteItems, validateQuoteSelection } from "@/lib/studio";
+import { notify } from "@/lib/notify";
 
 // Public quote response: accept (converts to a draft invoice) or decline.
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
@@ -24,17 +25,24 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   if (!action) return NextResponse.json({ error: "Invalid action" }, { status: 400 });
 
   if (action === "accept") {
+    // Phase 5B: the client's package and option selection is validated and stored.
+    const items = parseQuoteItems(quote.items);
+    const checked = validateQuoteSelection(items, body.selection ?? items.map((_, i) => i).filter((i) => items[i].kind === "fixed"));
+    if ("error" in checked) return NextResponse.json({ error: checked.error }, { status: 400 });
+    const selection = JSON.stringify(checked.selection);
+    const total = calcTotals(selectedQuoteItems(items, checked.selection), quote.taxRate, quote.discountType, quote.discountValue).total;
     await db.quote.update({
       where: { id: quote.id },
-      data: { status: "ACCEPTED", acceptedAt: new Date() },
+      data: { status: "ACCEPTED", acceptedAt: new Date(), selection },
     });
-    const invoice = await convertQuoteToInvoice(quote);
+    const invoice = await convertQuoteToInvoice({ ...quote, selection });
+    await notify(quote.userId, "QUOTE_ACCEPTED", `${quote.contact?.name ?? "A client"} accepted ${quote.number}`, `${fmtMoney(total)}, draft ${invoice.number} created`, `/studio/invoices/${invoice.id}`);
     await logStudioMessage(quote.userId, {
       kind: "QUOTE",
       name: quote.contact?.name ?? "",
       email: quote.contact?.email ?? "",
       subject: `Quote ${quote.number} accepted`,
-      body: `${quote.contact?.name ?? "The client"} accepted quote ${quote.number}. A draft invoice (${invoice.number}) was created from it.`,
+      body: `${quote.contact?.name ?? "The client"} accepted quote ${quote.number}. Selected: ${selectedQuoteItems(items, checked.selection).map((i) => i.description).join(", ")} (${fmtMoney(total)}). A draft invoice (${invoice.number}) was created from it.`,
     });
     return NextResponse.json({ ok: true, status: "ACCEPTED" });
   }

@@ -21,7 +21,7 @@ interface ChromeSite {
 
 function Logo({ site, basePath, large }: { site: ChromeSite; basePath: string; large?: boolean }) {
   return (
-    <Link href={basePath} className="inline-block">
+    <Link href={basePath || "/"} className="inline-block">
       {site.logoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={site.logoUrl} alt={site.logoText || "Logo"} className={large ? "h-14" : "h-9"} />
@@ -38,7 +38,7 @@ function NavLinks({ pages, basePath, activeSlug, className }: { pages: NavPage[]
       {pages.filter((p) => p.visible).map((p) => (
         <Link
           key={p.slug || "home"}
-          href={p.slug ? `${basePath}/${p.slug}` : basePath}
+          href={p.slug.startsWith("#") ? `${basePath}/${p.slug}` : p.slug ? `${basePath}/${p.slug}` : basePath || "/"}
           className={`site-nav-link ${p.slug === activeSlug ? "active" : ""}`}
         >
           {p.title}
@@ -48,8 +48,7 @@ function NavLinks({ pages, basePath, activeSlug, className }: { pages: NavPage[]
   );
 }
 
-export function SiteHeader({ site, pages, activeSlug }: { site: ChromeSite; pages: NavPage[]; activeSlug: string }) {
-  const basePath = `/site/${site.slug}`;
+export function SiteHeader({ site, pages, activeSlug, basePath }: { site: ChromeSite; pages: NavPage[]; activeSlug: string; basePath: string }) {
   const style = site.headerStyle;
 
   if (style === "center" || style === "stacked") {
@@ -74,8 +73,7 @@ export function SiteHeader({ site, pages, activeSlug }: { site: ChromeSite; page
   );
 }
 
-export function SiteFooter({ site, pages }: { site: ChromeSite; pages: NavPage[] }) {
-  const basePath = `/site/${site.slug}`;
+export function SiteFooter({ site, pages, basePath }: { site: ChromeSite; pages: NavPage[]; basePath: string }) {
   const socials = [
     { label: "Instagram", url: site.socialInstagram },
     { label: "Facebook", url: site.socialFacebook },
@@ -103,12 +101,16 @@ export function SiteFooter({ site, pages }: { site: ChromeSite; pages: NavPage[]
   );
 }
 
-export function OwnerPreviewBanner({ published }: { published: boolean }) {
+export function OwnerPreviewBanner({ published, draftMode, slug }: { published: boolean; draftMode: boolean; slug: string }) {
+  const toggle = `/api/website/preview?mode=${draftMode ? "live" : "draft"}&slug=${encodeURIComponent(slug)}`;
   return (
-    <div className="bg-neutral-900 text-white text-center text-xs py-2 px-4">
-      {published
-        ? "Owner preview, this is your live site."
-        : "Owner preview, your site is unpublished. Only you can see it (Website → Settings to publish)."}
+    <div className={`${draftMode ? "bg-amber-600" : "bg-neutral-900"} text-white text-center text-xs py-2 px-4`}>
+      {draftMode
+        ? "Draft preview, visitors do not see these changes until you publish them (Website, Publish changes). "
+        : published
+          ? "Owner preview, this is your live, published site. "
+          : "Owner preview, your site is offline. Only you can see it (Website, Settings to put it online). "}
+      <a href={toggle} className="underline ml-1">{draftMode ? "View the live site" : "Preview the draft"}</a>
     </div>
   );
 }

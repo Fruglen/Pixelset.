@@ -31,6 +31,9 @@ export async function POST(req: NextRequest) {
       minSpendCents: Math.max(0, Math.round(Number(body.minSpendCents) || 0)),
       useLimit: body.useLimit ? Math.max(1, Math.round(Number(body.useLimit))) : null,
       expiresAt: body.expiresAt ? new Date(`${body.expiresAt}T23:59:59`) : null,
+      // Gallery banner (data side; the gallery render mount is a hand-off).
+      showBanner: body.showBanner === true,
+      bannerText: typeof body.bannerText === "string" ? body.bannerText.trim().slice(0, 140) : "",
     },
   });
   return NextResponse.json({ id: coupon.id });

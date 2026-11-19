@@ -111,9 +111,14 @@ body {
   font-family: var(--s-body);
   background: var(--s-accent);
   color: var(--s-bg);
-  border-radius: 2px;
+  border-radius: var(--s-radius, 2px);
   transition: opacity 0.15s;
   cursor: pointer;
+}
+/* Phase 5B: site-wide arrow style on buttons and text links */
+.site-btn::after,
+.site-arrow::after {
+  content: var(--s-arrow, "");
 }
 .site-btn:hover {
   opacity: 0.85;
@@ -138,6 +143,103 @@ body {
 .site-nav-link:hover,
 .site-nav-link.active {
   color: var(--s-text);
+}
+/* Phase 5B: site-wide spacing, freeform canvas */
+.site-section {
+  padding: var(--s-pad, 2.5rem) 1.5rem;
+}
+@media (min-width: 768px) {
+  .site-section {
+    padding-top: var(--s-pad-md, 3.5rem);
+    padding-bottom: var(--s-pad-md, 3.5rem);
+  }
+}
+.site-free-canvas {
+  position: relative;
+  height: var(--free-h);
+}
+.site-free-el {
+  position: absolute;
+}
+@media (max-width: 767px) {
+  .site-free-canvas {
+    height: auto;
+  }
+  .site-free-el {
+    position: static;
+    margin: 0 auto 1rem;
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: var(--m-aspect, auto);
+    transform: none !important;
+  }
+}
+/* Night build: per device block layouts (props._dev on a block) */
+.blk-inner {
+  margin: 0 auto;
+  width: var(--bw, 100%);
+}
+.blk-frame.has-bmh {
+  min-height: var(--bmh, 0);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+@media (max-width: 1023px) {
+  .blk-inner {
+    width: var(--bw-t, var(--bw, 100%));
+  }
+  .blk-frame.has-bmh {
+    min-height: var(--bmh-t, var(--bmh, 0));
+  }
+  .dev-hide-tablet {
+    display: none !important;
+  }
+}
+@media (max-width: 767px) {
+  .blk-inner {
+    width: var(--bw-m, var(--bw, 100%));
+  }
+  .blk-frame.has-bmh {
+    min-height: var(--bmh-m, var(--bmh, 0));
+  }
+  .dev-hide-mobile {
+    display: none !important;
+  }
+}
+/* Night build: site wide animation controls (Website settings) */
+.site-root[data-anim="fade"] main > *,
+.site-root[data-anim="rise"] main > *,
+.site-root[data-anim="zoom"] main > * {
+  animation-duration: var(--s-anim-speed, 0.7s);
+  animation-timing-function: ease;
+  animation-fill-mode: both;
+}
+.site-root[data-anim="fade"] main > * {
+  animation-name: siteAnimFade;
+}
+.site-root[data-anim="rise"] main > * {
+  animation-name: siteAnimRise;
+}
+.site-root[data-anim="zoom"] main > * {
+  animation-name: siteAnimZoom;
+}
+@keyframes siteAnimFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes siteAnimRise {
+  from { opacity: 0; transform: translateY(26px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes siteAnimZoom {
+  from { opacity: 0; transform: scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-root[data-anim] main > * {
+    animation: none;
+  }
 }
 .site-fade-slide {
   animation: siteFade 1.2s ease both;
@@ -164,4 +266,78 @@ body {
   color: rgba(255, 255, 255, 0.55);
   text-shadow: 0 0 6px rgba(0, 0, 0, 0.35);
   white-space: nowrap;
+}
+
+/* Phase 5B platform: account brand applied to client facing pages.
+   Pages that render with brandVars() + the "branded" class take the brand's
+   button colour and heading font from Settings > Account > Brand. */
+.branded .btn-primary {
+  background-color: var(--brand-accent, #171717);
+}
+.branded .btn-primary:hover {
+  filter: brightness(1.12);
+}
+.branded .font-display {
+  font-family: var(--brand-display);
+}
+
+/* Night build (Extras): print friendly invoices and receipts. Client facing
+   pay pages (/pay/[token]) print as a clean paper document: white page, no
+   screen chrome, a repeated studio header, page numbers, and no clipped
+   totals. */
+@media print {
+  @page {
+    margin: 18mm 14mm 16mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+  }
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-area {
+    padding: 0 !important;
+    background: #fff !important;
+    min-height: 0 !important;
+  }
+  .print-area .card,
+  .print-area .no-print-shadow {
+    box-shadow: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-header {
+    display: block !important;
+    border-bottom: 2px solid #171717;
+    padding-bottom: 10px;
+    margin-bottom: 18px;
+  }
+  .print-page-number::after {
+    content: "Page " counter(page) " of " counter(pages);
+    position: fixed;
+    bottom: 0;
+    right: 0;
+    font-size: 10px;
+    color: #737373;
+  }
+  .print-avoid-break {
+    break-inside: avoid;
+  }
+  a {
+    text-decoration: none !important;
+    color: inherit !important;
+  }
+}
+
+/* Final pass: gallery cover entrance animation (Collection.coverAnimation). */
+@keyframes galleryCoverIn {
+  from { opacity: 0; transform: scale(1.015); }
+  to { opacity: 1; transform: none; }
+}
+.gallery-cover-anim { animation: galleryCoverIn 0.9s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .gallery-cover-anim { animation: none; }
 }

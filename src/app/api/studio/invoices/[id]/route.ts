@@ -24,6 +24,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   if (typeof body.title === "string") data.title = body.title.trim();
   if (typeof body.notes === "string") data.notes = body.notes;
+  // Night build follow-up: featured photo shown at the top of the pay page.
+  if (typeof body.featuredPhotoUrl === "string") data.featuredPhotoUrl = body.featuredPhotoUrl.trim().slice(0, 1000);
+  // Phase 5B: template + per invoice reminder schedule (days relative to the due date)
+  if (["CLASSIC", "MODERN", "MINIMAL"].includes(body.template)) data.template = body.template;
+  if (Array.isArray(body.reminderSchedule)) {
+    const offsets = Array.from(
+      new Set(body.reminderSchedule.map((n: unknown) => Math.round(Number(n))).filter((n: number) => Number.isFinite(n) && n >= -60 && n <= 120))
+    ).sort((a, b) => (a as number) - (b as number));
+    if (offsets.length > 8) return NextResponse.json({ error: "Up to 8 reminders per invoice." }, { status: 400 });
+    data.reminderSchedule = JSON.stringify(offsets);
+  }
   if (Array.isArray(body.items)) data.items = JSON.stringify(parseItems(JSON.stringify(body.items)));
   if (body.taxRate !== undefined) {
     const r = Number(body.taxRate);
@@ -106,6 +117,46 @@ ${businessName}`,
       where: { invoiceId: invoice.id, paidAt: null },
       data: { paidAt: new Date(), paymentMethod: "manual" },
     });
+  }
+  // Night build: Tap to Pay / in-person collection. With Stripe live, the
+  // charge runs through Stripe Terminal on the photographer's phone; here we
+  // settle the next open instalment (or the full balance) as an in-person
+  // card payment and record it like any other payment.
+  if (body.action === "tapToPay") {
+    const denied = permissionError("payments");
+    if (denied) return NextResponse.json({ error: denied }, { status: 403 });
+    const { recordPayment } = await import("@/lib/studio-flow");
+    const { notify } = await import("@/lib/notify");
+    const next = invoice.installments.find((i) => !i.paidAt);
+    if (invoice.installments.length > 0 && next) {
+      await db.invoiceInstallment.update({ where: { id: next.id }, data: { paidAt: new Date(), paymentMethod: "Tap to Pay" } });
+      await recordPayment({
+        userId: ctx.user.id,
+        source: "INVOICE",
+        sourceId: invoice.id,
+        label: `${invoice.number}, ${next.label || "Payment"} (in person)`,
+        payerName: invoice.contact?.name,
+        payerEmail: invoice.contact?.email,
+        amountCents: next.amountCents,
+        method: "Tap to Pay",
+      });
+    } else if (invoice.installments.length === 0) {
+      const { calcTotals, parseItems } = await import("@/lib/studio");
+      const totals = calcTotals(parseItems(invoice.items), invoice.taxRate, invoice.discountType, invoice.discountValue, invoice.tipCents);
+      data.status = "PAID";
+      data.paidAt = new Date();
+      await recordPayment({
+        userId: ctx.user.id,
+        source: "INVOICE",
+        sourceId: invoice.id,
+        label: `${invoice.number}, full balance (in person)`,
+        payerName: invoice.contact?.name,
+        payerEmail: invoice.contact?.email,
+        amountCents: totals.total,
+        method: "Tap to Pay",
+      });
+    }
+    await notify(ctx.user.id, "INVOICE_PAID", `In person payment on ${invoice.number}`, "Taken with Tap to Pay", `/studio/invoices/${invoice.id}`);
   }
   if (body.action === "revertToDraft" && invoice.status === "SENT") {
     data.status = "DRAFT";

@@ -19,6 +19,8 @@ export default async function CouponsPage() {
         useLimit: c.useLimit,
         useCount: c.useCount,
         expiresAt: c.expiresAt ? c.expiresAt.toISOString().slice(0, 10) : null,
+        showBanner: c.showBanner,
+        bannerText: c.bannerText,
       }))}
     />
   );

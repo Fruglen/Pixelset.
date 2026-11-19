@@ -22,7 +22,13 @@ export interface LabOrderView {
   sentAt: string;
   response: string;
   createdAt: string;
+  trackingNumber: string;
+  carrier: string;
+  labReference: string;
+  events: { id: string; status: string; note: string; source: string; at: string }[];
 }
+
+const SOURCE: Record<string, string> = { SYSTEM: "Pixelset", PHOTOGRAPHER: "You", LAB: "Lab" };
 
 export default function LabPanel({
   orderId,
@@ -30,17 +36,22 @@ export default function LabPanel({
   hasLabItems,
   connected,
   connectionNote,
+  held = false,
 }: {
   orderId: string;
   labOrders: LabOrderView[];
   hasLabItems: boolean;
   connected: boolean;
   connectionNote: string;
+  held?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [edits, setEdits] = useState<Record<string, { status: string; trackingNumber: string; carrier: string; note: string }>>({});
+  const editOf = (lo: LabOrderView) =>
+    edits[lo.id] ?? { status: lo.status, trackingNumber: lo.trackingNumber, carrier: lo.carrier, note: "" };
 
   if (!hasLabItems) return null;
 
@@ -103,19 +114,9 @@ export default function LabPanel({
               {LABELS[lo.status] ?? lo.status}
             </span>
             {lo.sentAt && <span className="text-xs text-neutral-400">sent {lo.sentAt}</span>}
+            {lo.labReference && <span className="text-xs text-neutral-400">lab ref {lo.labReference}</span>}
             <span className="flex-1" />
-            <select
-              className="input !w-44 !py-1 text-xs"
-              value={lo.status}
-              onChange={(e) => act({ action: "setStatus", labOrderId: lo.id, status: e.target.value }, `st-${lo.id}`)}
-            >
-              {LAB_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {LABELS[s]}
-                </option>
-              ))}
-            </select>
-            {lo.status === "QUEUED" || lo.status === "REPRINT_REQUESTED" ? (
+            {(lo.status === "QUEUED" || lo.status === "REPRINT_REQUESTED") && !held ? (
               <button
                 className="btn-secondary !py-1 text-xs"
                 disabled={busy !== ""}
@@ -124,6 +125,74 @@ export default function LabPanel({
                 {busy === `send-${lo.id}` ? "Sending…" : "Send to lab now"}
               </button>
             ) : null}
+          </div>
+          {held && lo.status === "QUEUED" && (
+            <p className="text-xs text-amber-700">Held until the offline payment is marked received.</p>
+          )}
+          {lo.trackingNumber && (
+            <p className="text-xs text-neutral-600">
+              Tracking: {lo.carrier ? `${lo.carrier} ` : ""}
+              <span className="font-mono">{lo.trackingNumber}</span>
+            </p>
+          )}
+
+          <ol className="border-l border-neutral-200 ml-1.5 space-y-2 py-1">
+            {lo.events.map((e) => (
+              <li key={e.id} className="pl-3 relative text-xs">
+                <span className="absolute -left-[4.5px] top-1 h-2 w-2 rounded-full bg-neutral-400" />
+                <span className="font-medium">{LABELS[e.status] ?? e.status}</span>
+                <span className="text-neutral-400"> · {e.at} · {SOURCE[e.source] ?? e.source}</span>
+                {e.note && <p className="text-neutral-500">{e.note}</p>}
+              </li>
+            ))}
+            {lo.events.length === 0 && <li className="pl-3 text-xs text-neutral-400">No timeline events recorded yet.</li>}
+          </ol>
+
+          <div className="flex flex-wrap items-end gap-2 border-t border-neutral-100 pt-2">
+            <div>
+              <label className="label !text-[10px]">Status</label>
+              <select
+                className="input !w-40 !py-1 text-xs"
+                value={editOf(lo).status}
+                onChange={(e) => setEdits({ ...edits, [lo.id]: { ...editOf(lo), status: e.target.value } })}
+              >
+                {LAB_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {editOf(lo).status === "SHIPPED" && (
+              <>
+                <div>
+                  <label className="label !text-[10px]">Carrier</label>
+                  <input className="input !w-28 !py-1 text-xs" value={editOf(lo).carrier} onChange={(e) => setEdits({ ...edits, [lo.id]: { ...editOf(lo), carrier: e.target.value } })} placeholder="UPS" />
+                </div>
+                <div>
+                  <label className="label !text-[10px]">Tracking number</label>
+                  <input className="input !w-40 !py-1 text-xs" value={editOf(lo).trackingNumber} onChange={(e) => setEdits({ ...edits, [lo.id]: { ...editOf(lo), trackingNumber: e.target.value } })} />
+                </div>
+              </>
+            )}
+            <div className="flex-1 min-w-32">
+              <label className="label !text-[10px]">Note</label>
+              <input className="input !py-1 text-xs" value={editOf(lo).note} onChange={(e) => setEdits({ ...edits, [lo.id]: { ...editOf(lo), note: e.target.value } })} placeholder="Optional" />
+            </div>
+            <button
+              className="btn-secondary !py-1 text-xs"
+              disabled={busy !== ""}
+              onClick={async () => {
+                await act({ action: "setStatus", labOrderId: lo.id, ...editOf(lo) }, `st-${lo.id}`);
+                setEdits((x) => {
+                  const n = { ...x };
+                  delete n[lo.id];
+                  return n;
+                });
+              }}
+            >
+              {busy === `st-${lo.id}` ? "Saving…" : "Update status"}
+            </button>
           </div>
           {(lo.status === "QUEUED" || lo.status === "REPRINT_REQUESTED") && !connected && (
             <p className="text-xs text-amber-700">Ready to send, no lab connected.</p>

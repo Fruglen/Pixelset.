@@ -5,12 +5,24 @@ import { Block } from "@/lib/blocks";
 import { siteHref } from "@/lib/site-data";
 import { formatDate, isExpired } from "@/lib/utils";
 import { Slideshow, ContactForm, BookingForm, NewsletterForm } from "./site-client";
+import { MiniSessionSlots } from "@/components/mini-session-slots";
+import { rt } from "./rich-text";
+import { GalleryFinder } from "./site-client";
+import { SiteBooking } from "./site-booking";
+import { FreeformBlock } from "./freeform";
+import { loadSiteBooking } from "@/lib/site-booking";
+import { fetchInstagramFeed, instagramTokenFor } from "@/lib/instagram";
+import { sanitizeEmbed } from "@/lib/embed";
+import { parseDeviceLayouts } from "@/lib/blocks";
+import { paletteVars } from "@/lib/site-data";
+import { sitePaletteById } from "@/lib/website";
 
 export interface SiteCtx {
   websiteId: string;
   userId: string;
   siteSlug: string;
   basePath: string;
+  instagramToken?: string;
 }
 
 // --- prop coercion helpers --------------------------------------------------
@@ -53,7 +65,7 @@ function videoEmbedUrl(url: string): string | null {
 
 function Section({ children, width = "wide", pad = true }: { children: React.ReactNode; width?: string; pad?: boolean }) {
   return (
-    <section className={pad ? "px-6 py-10 md:py-14" : ""}>
+    <section className={pad ? "site-section" : ""}>
       <div className={`mx-auto ${WIDTHS[width] ?? WIDTHS.wide}`}>{children}</div>
     </section>
   );
@@ -72,7 +84,7 @@ function Paragraphs({ text, className }: { text: string; className?: string }) {
         .filter(Boolean)
         .map((p, i) => (
           <p key={i} className={`leading-relaxed ${className ?? ""} ${i > 0 ? "mt-4" : ""}`}>
-            {p}
+            {rt(p)}
           </p>
         ))}
     </>
@@ -94,12 +106,12 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
           {flag(p.overlay, true) && image ? <div className="absolute inset-0 bg-black/35" /> : null}
           <div className={`relative h-full flex flex-col justify-center px-8 md:px-16 ${align === "center" ? "items-center text-center" : align === "right" ? "items-end text-right" : "items-start text-left"}`}>
             <div className={image ? "text-white" : ""}>
-              {s(p.kicker) ? <p className="text-xs tracking-[0.3em] uppercase mb-4 opacity-90">{s(p.kicker)}</p> : null}
-              <h1 className="site-display text-4xl md:text-6xl max-w-3xl">{s(p.heading)}</h1>
-              {s(p.subheading) ? <p className="mt-4 max-w-xl text-base md:text-lg opacity-90">{s(p.subheading)}</p> : null}
+              {s(p.kicker) ? <p className="text-xs tracking-[0.3em] uppercase mb-4 opacity-90">{rt(s(p.kicker))}</p> : null}
+              <h1 className="site-display text-4xl md:text-6xl max-w-3xl">{rt(s(p.heading))}</h1>
+              {s(p.subheading) ? <p className="mt-4 max-w-xl text-base md:text-lg opacity-90">{rt(s(p.subheading))}</p> : null}
               {s(p.buttonLabel) ? (
                 <Link href={siteHref(ctx.basePath, s(p.buttonLink))} className="site-btn mt-8" style={image ? { background: "#fff", color: "#1a1a1a" } : undefined}>
-                  {s(p.buttonLabel)}
+                  {rt(s(p.buttonLabel))}
                 </Link>
               ) : null}
             </div>
@@ -114,12 +126,12 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
       const imageEl = image ? <img src={image} alt={s(p.imageAlt)} className="w-full h-[46vh] md:h-[72vh] object-cover" /> : <div className="w-full h-[46vh] md:h-[72vh] site-muted-bg" />;
       const textEl = (
         <div className="flex flex-col justify-center px-8 md:px-14 py-12">
-          {s(p.kicker) ? <p className="text-xs tracking-[0.3em] uppercase site-subtle mb-4">{s(p.kicker)}</p> : null}
-          <h1 className="site-display text-3xl md:text-5xl">{s(p.heading)}</h1>
-          {s(p.subheading) ? <p className="mt-4 site-subtle max-w-md leading-relaxed">{s(p.subheading)}</p> : null}
+          {s(p.kicker) ? <p className="text-xs tracking-[0.3em] uppercase site-subtle mb-4">{rt(s(p.kicker))}</p> : null}
+          <h1 className="site-display text-3xl md:text-5xl">{rt(s(p.heading))}</h1>
+          {s(p.subheading) ? <p className="mt-4 site-subtle max-w-md leading-relaxed">{rt(s(p.subheading))}</p> : null}
           {s(p.buttonLabel) ? (
             <div className="mt-8">
-              <Link href={siteHref(ctx.basePath, s(p.buttonLink))} className="site-btn">{s(p.buttonLabel)}</Link>
+              <Link href={siteHref(ctx.basePath, s(p.buttonLink))} className="site-btn">{rt(s(p.buttonLabel))}</Link>
             </div>
           ) : null}
         </div>
@@ -140,9 +152,9 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
       return (
         <Section width="regular">
           <div className={ALIGNS[s(p.align, "center")] ?? "text-center"}>
-            {s(p.kicker) ? <p className="text-xs tracking-[0.3em] uppercase site-accent mb-3">{s(p.kicker)}</p> : null}
-            <h2 className="site-display text-3xl md:text-4xl">{s(p.heading)}</h2>
-            {s(p.intro) ? <p className="site-subtle mt-4 max-w-2xl mx-auto leading-relaxed">{s(p.intro)}</p> : null}
+            {s(p.kicker) ? <p className="text-xs tracking-[0.3em] uppercase site-accent mb-3">{rt(s(p.kicker))}</p> : null}
+            <h2 className="site-display text-3xl md:text-4xl">{rt(s(p.heading))}</h2>
+            {s(p.intro) ? <p className="site-subtle mt-4 max-w-2xl mx-auto leading-relaxed">{rt(s(p.intro))}</p> : null}
           </div>
         </Section>
       );
@@ -160,8 +172,8 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
       return (
         <Section width="regular">
           <blockquote className="text-center">
-            <p className="site-display text-2xl md:text-3xl leading-snug">&ldquo;{s(p.quote)}&rdquo;</p>
-            {s(p.attribution) ? <footer className="site-subtle text-xs tracking-[0.2em] uppercase mt-4">- {s(p.attribution)}</footer> : null}
+            <p className="site-display text-2xl md:text-3xl leading-snug">&ldquo;{rt(s(p.quote))}&rdquo;</p>
+            {s(p.attribution) ? <footer className="site-subtle text-xs tracking-[0.2em] uppercase mt-4">- {rt(s(p.attribution))}</footer> : null}
           </blockquote>
         </Section>
       );
@@ -172,7 +184,7 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
           <div className={`grid gap-8 ${COLS[s(p.cols, "2")] ?? COLS["2"]}`}>
             {items(p.items).map((it, i) => (
               <div key={i}>
-                <h3 className="site-display text-xl mb-2">{s(it.title)}</h3>
+                <h3 className="site-display text-xl mb-2">{rt(s(it.title))}</h3>
                 <Paragraphs text={s(it.body)} className="site-subtle text-sm" />
               </div>
             ))}
@@ -183,12 +195,12 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
     case "list":
       return (
         <Section width="regular">
-          {s(p.heading) ? <h3 className="site-display text-2xl mb-6 text-center">{s(p.heading)}</h3> : null}
+          {s(p.heading) ? <h3 className="site-display text-2xl mb-6 text-center">{rt(s(p.heading))}</h3> : null}
           <ul className={`grid gap-x-10 gap-y-3 ${COLS[s(p.cols, "2")] ?? COLS["2"]}`}>
             {items(p.items).map((it, i) => (
               <li key={i} className="flex items-start gap-3">
                 <span className="site-accent mt-0.5">✓</span>
-                <span>{s(it.text)}</span>
+                <span>{rt(s(it.text))}</span>
               </li>
             ))}
           </ul>
@@ -200,7 +212,7 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
       return (
         <Section width={w} pad={w !== "full"}>
           {s(p.image) ? <img src={s(p.image)} alt={s(p.imageAlt)} className="w-full" /> : null}
-          {s(p.caption) ? <p className="site-subtle text-xs tracking-wide text-center mt-3 px-6">{s(p.caption)}</p> : null}
+          {s(p.caption) ? <p className="site-subtle text-xs tracking-wide text-center mt-3 px-6">{rt(s(p.caption))}</p> : null}
         </Section>
       );
     }
@@ -210,12 +222,12 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
       const imageEl = s(p.image) ? <img src={s(p.image)} alt={s(p.imageAlt)} className="w-full object-cover aspect-[4/5]" /> : <div className="w-full aspect-[4/5] site-muted-bg" />;
       const textEl = (
         <div className="flex flex-col justify-center">
-          {s(p.kicker) ? <p className="text-xs tracking-[0.3em] uppercase site-accent mb-3">{s(p.kicker)}</p> : null}
-          <h2 className="site-display text-2xl md:text-3xl mb-4">{s(p.heading)}</h2>
+          {s(p.kicker) ? <p className="text-xs tracking-[0.3em] uppercase site-accent mb-3">{rt(s(p.kicker))}</p> : null}
+          <h2 className="site-display text-2xl md:text-3xl mb-4">{rt(s(p.heading))}</h2>
           <Paragraphs text={s(p.body)} className="site-subtle" />
           {s(p.buttonLabel) ? (
             <div className="mt-6">
-              <Link href={siteHref(ctx.basePath, s(p.buttonLink))} className="site-btn site-btn-outline">{s(p.buttonLabel)}</Link>
+              <Link href={siteHref(ctx.basePath, s(p.buttonLink))} className="site-btn site-btn-outline">{rt(s(p.buttonLabel))}</Link>
             </div>
           ) : null}
         </div>
@@ -238,7 +250,7 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
             {im.map((it, i) => (
               <figure key={i}>
                 <img src={s(it.url)} alt={s(it.alt)} className="w-full aspect-[4/5] object-cover" />
-                {s(it.caption) ? <figcaption className="site-subtle text-xs mt-2 text-center">{s(it.caption)}</figcaption> : null}
+                {s(it.caption) ? <figcaption className="site-subtle text-xs mt-2 text-center">{rt(s(it.caption))}</figcaption> : null}
               </figure>
             ))}
           </div>
@@ -247,17 +259,32 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
     }
 
     case "video": {
-      const embed = videoEmbedUrl(s(p.url));
+      const url = s(p.url);
+      const embed = videoEmbedUrl(url);
+      const file = !embed && /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url);
+      const auto = flag(p.autoplay, false);
       return (
         <Section width={s(p.width, "regular")}>
           {embed ? (
             <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
               <iframe src={embed} className="absolute inset-0 w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen title={s(p.caption) || "Video"} />
             </div>
+          ) : file ? (
+            <video
+              src={url}
+              poster={s(p.poster) || undefined}
+              className="w-full"
+              controls={!auto}
+              autoPlay={auto}
+              muted={auto}
+              loop={auto}
+              playsInline
+              preload="metadata"
+            />
           ) : (
-            <div className="site-muted-bg aspect-video flex items-center justify-center site-subtle text-sm">Add a YouTube or Vimeo URL</div>
+            <div className="site-muted-bg aspect-video flex items-center justify-center site-subtle text-sm">Add a YouTube or Vimeo link, or upload a video</div>
           )}
-          {s(p.caption) ? <p className="site-subtle text-xs text-center mt-3">{s(p.caption)}</p> : null}
+          {s(p.caption) ? <p className="site-subtle text-xs text-center mt-3">{rt(s(p.caption))}</p> : null}
         </Section>
       );
     }
@@ -335,7 +362,7 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
             {s(p.imageA) ? <img src={s(p.imageA)} alt={s(p.imageAAlt)} className="w-full aspect-[4/5] object-cover" /> : null}
             {s(p.imageB) ? <img src={s(p.imageB)} alt={s(p.imageBAlt)} className="w-full aspect-[4/5] object-cover" /> : null}
           </div>
-          {s(p.caption) ? <p className="site-subtle text-xs text-center mt-3">{s(p.caption)}</p> : null}
+          {s(p.caption) ? <p className="site-subtle text-xs text-center mt-3">{rt(s(p.caption))}</p> : null}
         </Section>
       );
 
@@ -385,7 +412,7 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
               </tbody>
             </table>
           </div>
-          {s(p.note) ? <p className="site-subtle text-xs mt-4 text-center">{s(p.note)}</p> : null}
+          {s(p.note) ? <p className="site-subtle text-xs mt-4 text-center">{rt(s(p.note))}</p> : null}
         </Section>
       );
     }
@@ -397,7 +424,7 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
             {items(p.items).map((it, i) => (
               <div key={i}>
                 {s(it.image) ? <img src={s(it.image)} alt={s(it.imageAlt)} className="w-full aspect-[4/3] object-cover mb-4" /> : null}
-                <h3 className="site-display text-lg mb-2">{s(it.title)}</h3>
+                <h3 className="site-display text-lg mb-2">{rt(s(it.title))}</h3>
                 <Paragraphs text={s(it.body)} className="site-subtle text-sm" />
               </div>
             ))}
@@ -411,9 +438,9 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
           <ol className="space-y-10">
             {items(p.items).map((it, i) => (
               <li key={i} className="flex gap-6">
-                <span className="site-display site-accent text-2xl w-12 flex-none">{s(it.marker)}</span>
+                <span className="site-display site-accent text-2xl w-12 flex-none">{rt(s(it.marker))}</span>
                 <div>
-                  <h3 className="site-display text-lg mb-1">{s(it.title)}</h3>
+                  <h3 className="site-display text-lg mb-1">{rt(s(it.title))}</h3>
                   <Paragraphs text={s(it.body)} className="site-subtle text-sm" />
                 </div>
               </li>
@@ -428,8 +455,8 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
           <div className="flex flex-wrap justify-center gap-x-16 gap-y-8 text-center">
             {items(p.items).map((it, i) => (
               <div key={i}>
-                <p className="site-display text-4xl site-accent">{s(it.value)}</p>
-                <p className="site-subtle text-xs tracking-[0.2em] uppercase mt-2">{s(it.label)}</p>
+                <p className="site-display text-4xl site-accent">{rt(s(it.value))}</p>
+                <p className="site-subtle text-xs tracking-[0.2em] uppercase mt-2">{rt(s(it.label))}</p>
               </div>
             ))}
           </div>
@@ -443,8 +470,8 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
             {items(p.items).map((it, i) => (
               <div key={i} className="text-center">
                 {s(it.image) ? <img src={s(it.image)} alt={s(it.imageAlt)} className="w-40 h-40 rounded-full object-cover mx-auto mb-4" /> : null}
-                <h3 className="site-display text-lg">{s(it.name)}</h3>
-                <p className="site-accent text-xs tracking-[0.2em] uppercase mt-1">{s(it.role)}</p>
+                <h3 className="site-display text-lg">{rt(s(it.name))}</h3>
+                <p className="site-accent text-xs tracking-[0.2em] uppercase mt-1">{rt(s(it.role))}</p>
                 <Paragraphs text={s(it.bio)} className="site-subtle text-sm mt-2" />
               </div>
             ))}
@@ -455,12 +482,12 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
     case "faq":
       return (
         <Section width="narrow">
-          {s(p.heading) ? <h3 className="site-display text-2xl mb-6 text-center">{s(p.heading)}</h3> : null}
+          {s(p.heading) ? <h3 className="site-display text-2xl mb-6 text-center">{rt(s(p.heading))}</h3> : null}
           <div className="divide-y" style={{ borderColor: "color-mix(in srgb, var(--s-text) 12%, transparent)" }}>
             {items(p.items).map((it, i) => (
               <details key={i} className="py-4 group">
                 <summary className="cursor-pointer list-none flex justify-between items-center gap-4">
-                  <span className="font-medium">{s(it.q)}</span>
+                  <span className="font-medium">{rt(s(it.q))}</span>
                   <span className="site-accent group-open:rotate-45 transition-transform">+</span>
                 </summary>
                 <Paragraphs text={s(it.a)} className="site-subtle text-sm mt-3" />
@@ -473,7 +500,7 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
     case "logos":
       return (
         <Section width="regular">
-          {s(p.heading) ? <p className="site-subtle text-xs tracking-[0.3em] uppercase text-center mb-5">{s(p.heading)}</p> : null}
+          {s(p.heading) ? <p className="site-subtle text-xs tracking-[0.3em] uppercase text-center mb-5">{rt(s(p.heading))}</p> : null}
           <div className="flex flex-wrap justify-center gap-x-10 gap-y-4">
             {lines(p.names).map((nme, i) => (
               <span key={i} className="site-display text-lg opacity-60">{nme}</span>
@@ -484,12 +511,12 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
 
     case "cta":
       return (
-        <section className={`px-6 py-14 md:py-20 ${flag(p.tinted, true) ? "site-muted-bg" : ""}`}>
+        <section className={`site-section ${flag(p.tinted, true) ? "site-muted-bg" : ""}`}>
           <div className="max-w-2xl mx-auto text-center">
-            <h2 className="site-display text-3xl md:text-4xl">{s(p.heading)}</h2>
-            {s(p.body) ? <p className="site-subtle mt-4">{s(p.body)}</p> : null}
+            <h2 className="site-display text-3xl md:text-4xl">{rt(s(p.heading))}</h2>
+            {s(p.body) ? <p className="site-subtle mt-4">{rt(s(p.body))}</p> : null}
             {s(p.buttonLabel) ? (
-              <Link href={siteHref(ctx.basePath, s(p.buttonLink))} className="site-btn mt-8">{s(p.buttonLabel)}</Link>
+              <Link href={siteHref(ctx.basePath, s(p.buttonLink))} className="site-btn mt-8">{rt(s(p.buttonLabel))}</Link>
             ) : null}
           </div>
         </section>
@@ -501,9 +528,9 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
           <div className={`grid gap-8 ${COLS[s(p.cols, "2")] ?? COLS["2"]}`}>
             {items(p.items).map((it, i) => (
               <blockquote key={i} className="site-muted-bg p-8">
-                <p className="site-display text-lg leading-relaxed">&ldquo;{s(it.quote)}&rdquo;</p>
+                <p className="site-display text-lg leading-relaxed">&ldquo;{rt(s(it.quote))}&rdquo;</p>
                 <footer className="mt-4 text-xs tracking-[0.15em] uppercase site-subtle">
-                  {s(it.name)}{s(it.detail) ? ` · ${s(it.detail)}` : ""}
+                  {rt(s(it.name))}{s(it.detail) ? ` · ${rt(s(it.detail))}` : ""}
                 </footer>
               </blockquote>
             ))}
@@ -516,9 +543,9 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
         <Section width="regular">
           <div className="text-center">
             {s(p.image) ? <img src={s(p.image)} alt={s(p.imageAlt)} className="w-24 h-24 rounded-full object-cover mx-auto mb-6" /> : null}
-            <p className="site-display text-2xl md:text-3xl leading-snug">&ldquo;{s(p.quote)}&rdquo;</p>
+            <p className="site-display text-2xl md:text-3xl leading-snug">&ldquo;{rt(s(p.quote))}&rdquo;</p>
             <p className="mt-5 text-xs tracking-[0.2em] uppercase site-subtle">
-              {s(p.name)}{s(p.detail) ? ` · ${s(p.detail)}` : ""}
+              {rt(s(p.name))}{s(p.detail) ? ` · ${rt(s(p.detail))}` : ""}
             </p>
           </div>
         </Section>
@@ -531,9 +558,9 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
             {items(p.items).map((it, i) => (
               <div key={i} className="border p-6" style={{ borderColor: "color-mix(in srgb, var(--s-text) 15%, transparent)" }}>
                 <Stars count={num(it.stars, 5)} />
-                <p className="mt-3 leading-relaxed">&ldquo;{s(it.quote)}&rdquo;</p>
+                <p className="mt-3 leading-relaxed">&ldquo;{rt(s(it.quote))}&rdquo;</p>
                 <p className="mt-3 text-xs site-subtle">
-                  {s(it.name)}{s(it.source) ? `, via ${s(it.source)}` : ""}
+                  {rt(s(it.name))}{s(it.source) ? `, via ${rt(s(it.source))}` : ""}
                 </p>
               </div>
             ))}
@@ -542,28 +569,62 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
       );
 
     case "instagram": {
-      const im = items(p.images).filter((it) => s(it.url));
+      const manual = items(p.images).filter((it) => s(it.url)).map((it) => ({ url: s(it.url), alt: s(it.alt), link: s(p.url) }));
+      const count = Math.min(24, num(p.count, 6));
+      let shown = manual;
+      let handle = s(p.handle);
+      let profile = s(p.url);
+      const token = s(p.source, "live") === "live" ? instagramTokenFor({ instagramToken: ctx.instagramToken }) : "";
+      if (token) {
+        const feed = await fetchInstagramFeed(token, count);
+        if (feed.connected && feed.posts.length) {
+          shown = feed.posts.map((post) => ({ url: post.imageUrl, alt: post.caption.slice(0, 120) || "Instagram post", link: post.permalink }));
+          handle = handle || (feed.username ? `@${feed.username}` : "");
+          profile = profile || (feed.username ? `https://instagram.com/${feed.username}` : "");
+        }
+      }
       return (
         <Section>
-          {s(p.handle) ? (
+          {handle ? (
             <p className="text-center mb-5">
-              <a href={s(p.url) || "#"} target="_blank" rel="noreferrer" className="site-nav-link">{s(p.handle)} on Instagram</a>
+              <a href={profile || "#"} target="_blank" rel="noreferrer" className="site-nav-link">{rt(handle)} on Instagram</a>
             </p>
           ) : null}
           <div className="grid grid-cols-3 md:grid-cols-6 gap-1">
-            {im.slice(0, 6).map((it, i) => (
-              <img key={i} src={s(it.url)} alt={s(it.alt)} className="w-full aspect-square object-cover" />
+            {shown.slice(0, count).map((it, i) => (
+              <a key={i} href={it.link || profile || "#"} target="_blank" rel="noreferrer">
+                <img src={it.url} alt={it.alt} className="w-full aspect-square object-cover hover:opacity-80 transition-opacity" />
+              </a>
             ))}
           </div>
         </Section>
       );
     }
 
+    case "bookingCalendar": {
+      const ids = Array.isArray(p.sessionTypeIds) ? (p.sessionTypeIds as unknown[]).map(String) : [];
+      const data = await loadSiteBooking(ctx.userId, ids);
+      return (
+        <Section width="regular">
+          {s(p.heading) ? <h2 className="site-display text-3xl text-center mb-3">{rt(s(p.heading))}</h2> : null}
+          {s(p.intro) ? <p className="site-subtle text-center mb-8 max-w-xl mx-auto">{rt(s(p.intro))}</p> : null}
+          {data ? (
+            <SiteBooking data={data} layout={s(p.layout, "cards")} />
+          ) : (
+            <p className="site-subtle text-center">Online booking is not set up yet. Please use the contact form and we will find a time together.</p>
+          )}
+        </Section>
+      );
+    }
+
+    case "freeform":
+      return <FreeformBlock props={p} basePath={ctx.basePath} />;
+
     case "contactForm":
       return (
         <Section width="regular">
-          {s(p.heading) ? <h2 className="site-display text-3xl text-center mb-3">{s(p.heading)}</h2> : null}
-          {s(p.intro) ? <p className="site-subtle text-center mb-8 max-w-xl mx-auto">{s(p.intro)}</p> : null}
+          {s(p.heading) ? <h2 className="site-display text-3xl text-center mb-3">{rt(s(p.heading))}</h2> : null}
+          {s(p.intro) ? <p className="site-subtle text-center mb-8 max-w-xl mx-auto">{rt(s(p.intro))}</p> : null}
           <ContactForm siteSlug={ctx.siteSlug} askPhone={flag(p.phone, false)} askSubject={flag(p.subject, true)} buttonLabel={s(p.buttonLabel, "Send message")} success={s(p.success, "Thank you, message received.")} />
         </Section>
       );
@@ -572,19 +633,28 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
       return (
         <Section width="regular">
           <div className="site-muted-bg px-6 py-10 md:px-12">
-            {s(p.heading) ? <h2 className="site-display text-2xl text-center mb-3">{s(p.heading)}</h2> : null}
-            {s(p.intro) ? <p className="site-subtle text-center mb-8 max-w-xl mx-auto">{s(p.intro)}</p> : null}
+            {s(p.heading) ? <h2 className="site-display text-2xl text-center mb-3">{rt(s(p.heading))}</h2> : null}
+            {s(p.intro) ? <p className="site-subtle text-center mb-8 max-w-xl mx-auto">{rt(s(p.intro))}</p> : null}
             <BookingForm siteSlug={ctx.siteSlug} sessionTypes={lines(p.sessionTypes)} buttonLabel={s(p.buttonLabel, "Request booking")} success={s(p.success, "Request received.")} />
           </div>
         </Section>
       );
 
+    case "miniSession":
+      return (
+        <Section width="regular">
+          {s(p.heading) ? <h2 className="site-display text-3xl text-center mb-3">{s(p.heading)}</h2> : null}
+          {s(p.intro) ? <p className="site-subtle text-center mb-8 max-w-xl mx-auto">{s(p.intro)}</p> : null}
+          <MiniSessionSlots userId={ctx.userId} nameFilter={s(p.miniName).trim()} showHeader={flag(p.showDetails, true)} />
+        </Section>
+      );
+
     case "newsletter":
       return (
-        <section className="site-muted-bg px-6 py-12">
+        <section className="site-muted-bg site-section">
           <div className="max-w-xl mx-auto text-center">
-            <h3 className="site-display text-2xl">{s(p.heading, "Join the mailing list")}</h3>
-            {s(p.subtext) ? <p className="site-subtle text-sm mt-2 mb-5">{s(p.subtext)}</p> : null}
+            <h3 className="site-display text-2xl">{rt(s(p.heading, "Join the mailing list"))}</h3>
+            {s(p.subtext) ? <p className="site-subtle text-sm mt-2 mb-5">{rt(s(p.subtext))}</p> : null}
             <NewsletterForm siteSlug={ctx.siteSlug} buttonLabel={s(p.buttonLabel, "Subscribe")} />
           </div>
         </section>
@@ -600,7 +670,7 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
       const list = s(p.layout, "grid") === "list";
       return (
         <Section>
-          {s(p.heading) ? <h2 className="site-display text-3xl text-center mb-8">{s(p.heading)}</h2> : null}
+          {s(p.heading) ? <h2 className="site-display text-3xl text-center mb-8">{rt(s(p.heading))}</h2> : null}
           {list ? (
             <div className="max-w-3xl mx-auto divide-y" style={{ borderColor: "color-mix(in srgb, var(--s-text) 12%, transparent)" }}>
               {posts.map((post) => (
@@ -635,38 +705,48 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
     }
 
     case "clientGalleries": {
+      // Auto synced: queried at render time, so newly published galleries
+      // appear without editing the page. Each card links to /g/<slug>, which
+      // enforces that gallery's own password, email registration or
+      // pre-release sign up.
+      const which = s(p.which, "all");
+      const statuses = flag(p.showPrerelease, false) ? ["PUBLISHED", "PRERELEASE"] : ["PUBLISHED"];
+      const chosen = lines(p.slugs);
+      const sort = s(p.sort, "eventDate");
       const collections = await db.collection.findMany({
-        where: { userId: ctx.userId, status: "PUBLISHED" },
+        where: {
+          userId: ctx.userId,
+          status: { in: statuses },
+          ...(which === "homepage" ? { showOnHomepage: true } : {}),
+          ...(which === "chosen" ? { slug: { in: chosen.length ? chosen : ["__none__"] } } : {}),
+        },
         include: { photos: { where: { isPrivate: false }, orderBy: { order: "asc" }, take: 12 } },
-        orderBy: { eventDate: "desc" },
+        orderBy: sort === "name" ? { name: "asc" } : sort === "created" ? { createdAt: "desc" } : { eventDate: "desc" },
       });
-      const live = collections.filter((c) => !isExpired(c.expiresAt));
+      const live = collections.filter((c) => !isExpired(c.expiresAt)).slice(0, Math.min(200, num(p.count, 24)));
+      const list = live.map((c) => {
+        const cover = c.photos.find((ph) => ph.id === c.coverPhotoId) ?? c.photos[0];
+        const gates: string[] = [];
+        if (c.status === "PRERELEASE") gates.push("coming soon, register for launch");
+        if (c.password) gates.push("password protected");
+        if (c.emailRegistration) gates.push("email sign in");
+        return {
+          id: c.id,
+          name: c.name,
+          href: `/g/${c.slug}`,
+          cover: flag(p.showCovers, true) ? c.coverImageUrl || cover?.url || "" : "",
+          date: c.eventDate ? formatDate(c.eventDate) : "",
+          gates,
+        };
+      });
       return (
         <Section>
-          {s(p.heading) ? <h2 className="site-display text-3xl text-center mb-3">{s(p.heading)}</h2> : null}
-          {s(p.intro) ? <p className="site-subtle text-center mb-10 max-w-xl mx-auto">{s(p.intro)}</p> : null}
-          {live.length === 0 ? (
+          {s(p.heading) ? <h2 className="site-display text-3xl text-center mb-3">{rt(s(p.heading))}</h2> : null}
+          {s(p.intro) ? <p className="site-subtle text-center mb-10 max-w-xl mx-auto">{rt(s(p.intro))}</p> : null}
+          {list.length === 0 ? (
             <p className="site-subtle text-center">No galleries are currently online. Check back soon, or write to us.</p>
           ) : (
-            <div className="grid gap-6 md:grid-cols-3">
-              {live.map((c) => {
-                const cover = c.photos.find((ph) => ph.id === c.coverPhotoId) ?? c.photos[0];
-                return (
-                  <Link key={c.id} href={`/g/${c.slug}`} className="group">
-                    {flag(p.showCovers, true) && cover ? (
-                      <img src={cover.url} alt={`${c.name} gallery cover`} className="w-full aspect-[4/3] object-cover mb-3" />
-                    ) : (
-                      <div className="w-full aspect-[4/3] site-muted-bg mb-3 flex items-center justify-center site-display text-xl">{c.name.slice(0, 1)}</div>
-                    )}
-                    <h3 className="site-display text-lg group-hover:underline">{c.name}</h3>
-                    <p className="site-subtle text-xs mt-1">
-                      {c.eventDate ? formatDate(c.eventDate) : ""}
-                      {c.password ? " · password protected" : ""}
-                    </p>
-                  </Link>
-                );
-              })}
-            </div>
+            <GalleryFinder galleries={list} cols={s(p.cols, "3")} search={flag(p.search, true) && list.length > 3} />
           )}
         </Section>
       );
@@ -688,8 +768,8 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
               </svg>
             </div>
             <div className="p-8 flex flex-col justify-center">
-              <h3 className="site-display text-xl mb-2">{s(p.heading, "The studio")}</h3>
-              <p className="text-sm">{s(p.address)}</p>
+              <h3 className="site-display text-xl mb-2">{rt(s(p.heading, "The studio"))}</h3>
+              <p className="text-sm">{rt(s(p.address))}</p>
               {s(p.details) ? <Paragraphs text={s(p.details)} className="site-subtle text-sm mt-3" /> : null}
             </div>
           </div>
@@ -702,7 +782,7 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
           <div className="flex flex-wrap justify-center gap-6">
             {items(p.items).map((it, i) => (
               <a key={i} href={s(it.url) || "#"} target="_blank" rel="noreferrer" className="site-nav-link">
-                {s(it.label)}
+                {rt(s(it.label))}
               </a>
             ))}
           </div>
@@ -735,10 +815,95 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
         <Section width="regular">
           <div className={ALIGNS[s(p.align, "center")] ?? "text-center"}>
             {variant === "text" ? (
-              <Link href={siteHref(ctx.basePath, s(p.link))} className="site-nav-link underline">{s(p.label)}</Link>
+              <Link href={siteHref(ctx.basePath, s(p.link))} className="site-nav-link underline site-arrow">{rt(s(p.label))}</Link>
             ) : (
-              <Link href={siteHref(ctx.basePath, s(p.link))} className={`site-btn ${variant === "outline" ? "site-btn-outline" : ""}`}>{s(p.label)}</Link>
+              <Link href={siteHref(ctx.basePath, s(p.link))} className={`site-btn ${variant === "outline" ? "site-btn-outline" : ""}`}>{rt(s(p.label))}</Link>
             )}
+          </div>
+        </Section>
+      );
+    }
+
+    case "embed": {
+      // Night build (Website): custom embed code, sanitised server side to
+      // https iframes only (scripts and other tags never reach the page).
+      const embeds = sanitizeEmbed(s(p.code));
+      if (embeds.length === 0) return null;
+      const ratio = s(p.ratio, "16:9");
+      const aspect = ratio === "4:3" ? "4 / 3" : ratio === "1:1" ? "1 / 1" : "16 / 9";
+      return (
+        <Section width={s(p.width, "wide")}>
+          <div className="space-y-6">
+            {embeds.map((e, i) =>
+              ratio === "fixed" ? (
+                <div key={i} className="flex justify-center overflow-x-auto">
+                  <iframe
+                    src={e.src}
+                    title={s(p.title) || e.title}
+                    width={e.width ?? 800}
+                    height={e.height ?? 450}
+                    loading="lazy"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    style={{ border: 0, maxWidth: "100%" }}
+                  />
+                </div>
+              ) : (
+                <div key={i} className="relative w-full overflow-hidden" style={{ aspectRatio: aspect }}>
+                  <iframe
+                    src={e.src}
+                    title={s(p.title) || e.title}
+                    loading="lazy"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    className="absolute inset-0 h-full w-full"
+                    style={{ border: 0 }}
+                  />
+                </div>
+              )
+            )}
+          </div>
+        </Section>
+      );
+    }
+
+    case "linkList": {
+      // Night build (Website): bio link list for link-in-bio pages.
+      const links = items(p.links).filter((l) => s(l.label) && s(l.url));
+      const style = s(p.style, "pill");
+      return (
+        <Section width="narrow">
+          <div className="mx-auto max-w-md text-center">
+            {s(p.avatar) ? (
+              <img src={s(p.avatar)} alt={s(p.avatarAlt)} className="mx-auto h-24 w-24 rounded-full object-cover" />
+            ) : null}
+            {s(p.heading) ? <h1 className="site-display text-3xl mt-5">{rt(s(p.heading))}</h1> : null}
+            {s(p.subtext) ? <p className="site-subtle mt-2 leading-relaxed">{rt(s(p.subtext))}</p> : null}
+            <div className="mt-8 space-y-3">
+              {links.map((l, i) =>
+                style === "cards" ? (
+                  <a
+                    key={i}
+                    href={siteHref(ctx.basePath, s(l.url))}
+                    {...(s(l.url).startsWith("http") ? { target: "_blank", rel: "noreferrer" } : {})}
+                    className="block border px-5 py-4 text-left transition-opacity hover:opacity-80"
+                    style={{ borderColor: "color-mix(in srgb, var(--s-text) 18%, transparent)", borderRadius: "var(--s-radius, 2px)" }}
+                  >
+                    <span className="block font-medium">{rt(s(l.label))}</span>
+                    {s(l.note) ? <span className="site-subtle block text-sm mt-0.5">{rt(s(l.note))}</span> : null}
+                  </a>
+                ) : (
+                  <a
+                    key={i}
+                    href={siteHref(ctx.basePath, s(l.url))}
+                    {...(s(l.url).startsWith("http") ? { target: "_blank", rel: "noreferrer" } : {})}
+                    className="site-btn w-full"
+                  >
+                    {rt(s(l.label))}
+                  </a>
+                )
+              )}
+            </div>
           </div>
         </Section>
       );
@@ -749,11 +914,60 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
   }
 }
 
+// Phase 5B: every block can carry its own palette, an anchor id, a width and
+// a minimum height (set from the editor's block settings and resize handles).
+// Night build: per device overrides (props._dev) switch width and minimum
+// height at the tablet and mobile breakpoints, or hide the block there.
+function BlockFrame({ block, children }: { block: Block; children: React.ReactNode }) {
+  const p = block.props;
+  const palette = s(p._palette);
+  const anchor = s(p._anchor).replace(/[^a-zA-Z0-9_-]/g, "");
+  const width = Math.min(100, Math.max(20, num(p._width, 100)));
+  const minHeight = Math.max(0, Math.min(2000, Number(p._minHeight) || 0));
+  const dev = parseDeviceLayouts(p._dev);
+  const hasDev = !!(dev.tablet || dev.mobile);
+  if (!palette && !anchor && width === 100 && !minHeight && !hasDev) return <>{children}</>;
+  const style: React.CSSProperties = {};
+  if (palette) {
+    Object.assign(style, paletteVars(palette), { background: sitePaletteById(palette).bg, color: sitePaletteById(palette).text });
+  }
+  const t = dev.tablet;
+  const m = dev.mobile;
+  const anyMinHeight = minHeight || t?.minHeight || m?.minHeight;
+  if (anyMinHeight) {
+    Object.assign(style, {
+      "--bmh": `${minHeight}px`,
+      ...(t?.minHeight ? { "--bmh-t": `${t.minHeight}px` } : {}),
+      ...(m?.minHeight ? { "--bmh-m": `${m.minHeight}px` } : {}),
+    });
+  }
+  const classes = [
+    "blk-frame",
+    anchor ? "scroll-mt-6" : "",
+    anyMinHeight ? "has-bmh" : "",
+    t?.hidden ? "dev-hide-tablet" : "",
+    m?.hidden ? "dev-hide-mobile" : "",
+  ].filter(Boolean).join(" ");
+  const innerStyle: React.CSSProperties = {
+    "--bw": `${width}%`,
+    ...(t?.width ? { "--bw-t": `${t.width}%` } : {}),
+    ...(m?.width ? { "--bw-m": `${m.width}%` } : {}),
+  } as React.CSSProperties;
+  const needsInner = width < 100 || t?.width || m?.width;
+  return (
+    <div id={anchor || undefined} style={style} className={classes}>
+      {needsInner ? <div className="blk-inner" style={innerStyle}>{children}</div> : children}
+    </div>
+  );
+}
+
 export function RenderBlocks({ blocks, ctx }: { blocks: Block[]; ctx: SiteCtx }) {
   return (
     <>
       {blocks.map((block) => (
-        <RenderBlock key={block.id} block={block} ctx={ctx} />
+        <BlockFrame key={block.id} block={block}>
+          <RenderBlock block={block} ctx={ctx} />
+        </BlockFrame>
       ))}
     </>
   );

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { AvailabilityEditor } from "./availability-editor";
 
 function money(cents: number) {
   return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -15,6 +16,11 @@ interface TypeData {
   coverUrl: string;
   durationMin: number;
   bufferMin: number;
+  bufferBeforeMin: number;
+  availability: string;
+  remindersEnabled: boolean;
+  reminderHoursBefore: number;
+  meetingLink: string;
   priceCents: number;
   taxRate: number;
   locationType: string;
@@ -22,6 +28,7 @@ interface TypeData {
   cancellationPolicy: string;
   retainerType: string;
   retainerValue: number;
+  requiresApproval?: boolean;
   contractTemplateId: string;
   questionnaireId: string;
   active: boolean;
@@ -67,7 +74,9 @@ export function SessionEditor({
   dates,
   templates,
   questionnaires,
+  studioPro = true,
 }: {
+  studioPro?: boolean;
   bookingSlug: string;
   type: TypeData;
   addOns: AddOn[];
@@ -82,6 +91,9 @@ export function SessionEditor({
     coverUrl: type.coverUrl,
     durationMin: String(type.durationMin),
     bufferMin: String(type.bufferMin),
+    bufferBeforeMin: String(type.bufferBeforeMin),
+    meetingLink: type.meetingLink,
+    reminderHoursBefore: String(type.reminderHoursBefore),
     price: (type.priceCents / 100).toFixed(2),
     taxRate: String(type.taxRate),
     locationType: type.locationType,
@@ -90,6 +102,7 @@ export function SessionEditor({
     retainerType: type.retainerType,
     retainerValue:
       type.retainerType === "FIXED" ? (type.retainerValue / 100).toFixed(2) : String(type.retainerValue),
+    requiresApproval: !!type.requiresApproval,
     contractTemplateId: type.contractTemplateId,
     questionnaireId: type.questionnaireId,
   });
@@ -115,6 +128,8 @@ export function SessionEditor({
   });
 
   const directLink = `/book/${bookingSlug}/${type.id}`;
+  const [origin, setOrigin] = useState("");
+  useEffect(() => setOrigin(window.location.origin), []);
 
   async function patch(data: Record<string, unknown>, refresh = true) {
     setError("");
@@ -141,6 +156,9 @@ export function SessionEditor({
       coverUrl: form.coverUrl,
       durationMin: parseInt(form.durationMin) || type.durationMin,
       bufferMin: parseInt(form.bufferMin) || 0,
+      bufferBeforeMin: parseInt(form.bufferBeforeMin) || 0,
+      meetingLink: form.meetingLink,
+      reminderHoursBefore: parseInt(form.reminderHoursBefore) || 24,
       priceCents: Math.round((parseFloat(form.price) || 0) * 100),
       taxRate: parseFloat(form.taxRate) || 0,
       locationType: form.locationType,
@@ -151,6 +169,7 @@ export function SessionEditor({
         form.retainerType === "FIXED"
           ? Math.round((parseFloat(form.retainerValue) || 0) * 100)
           : Math.round(parseFloat(form.retainerValue) || 0),
+      requiresApproval: form.requiresApproval,
       contractTemplateId: form.contractTemplateId || null,
       questionnaireId: form.questionnaireId || null,
     });
@@ -351,7 +370,7 @@ export function SessionEditor({
             onChange={(e) => setForm({ ...form, coverUrl: e.target.value })}
           />
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <div>
             <label className="label">{type.isMini ? "Slot length (min)" : "Duration (min)"}</label>
             <input
@@ -361,7 +380,15 @@ export function SessionEditor({
             />
           </div>
           <div>
-            <label className="label">Buffer (min)</label>
+            <label className="label">Buffer before (min)</label>
+            <input
+              className="input"
+              value={form.bufferBeforeMin}
+              onChange={(e) => setForm({ ...form, bufferBeforeMin: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">Buffer after (min)</label>
             <input
               className="input"
               value={form.bufferMin}
@@ -390,18 +417,46 @@ export function SessionEditor({
               onChange={(e) => setForm({ ...form, locationType: e.target.value })}
             >
               <option value="IN_PERSON">In person</option>
-              <option value="ZOOM">Zoom</option>
+              <option value="VIDEO">Video call (link created per booking)</option>
+              <option value="ZOOM">Zoom (your own link)</option>
+              <option value="PHONE">Phone call</option>
             </select>
           </div>
-          <div>
-            <label className="label">{form.locationType === "ZOOM" ? "Zoom link" : "Location"}</label>
-            <input
-              className="input"
-              placeholder={form.locationType === "ZOOM" ? "https://zoom.us/j/…" : "Zilker Park, Austin"}
-              value={form.location}
-              onChange={(e) => setForm({ ...form, location: e.target.value })}
-            />
-          </div>
+          {form.locationType === "VIDEO" ? (
+            <div>
+              <label className="label">Fixed meeting link (optional)</label>
+              <input
+                className="input"
+                placeholder="Leave empty to create a new video room for every booking"
+                value={form.meetingLink}
+                onChange={(e) => setForm({ ...form, meetingLink: e.target.value })}
+              />
+              <p className="text-xs text-neutral-400 mt-1">
+                Empty: each booking gets its own Jitsi Meet room link, included in the confirmation and reminder emails.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label className="label">
+                {form.locationType === "ZOOM" ? "Zoom link" : form.locationType === "PHONE" ? "Number the client should call (optional)" : "Location"}
+              </label>
+              <input
+                className="input"
+                placeholder={
+                  form.locationType === "ZOOM"
+                    ? "https://zoom.us/j/…"
+                    : form.locationType === "PHONE"
+                      ? "Leave empty and you will call the client"
+                      : "Zilker Park, Austin"
+                }
+                value={form.location}
+                onChange={(e) => setForm({ ...form, location: e.target.value })}
+              />
+              {form.locationType === "PHONE" && !form.location ? (
+                <p className="text-xs text-neutral-400 mt-1">Clients must enter a phone number when they book.</p>
+              ) : null}
+            </div>
+          )}
         </div>
         <div>
           <label className="label">Cancellation policy</label>
@@ -413,6 +468,51 @@ export function SessionEditor({
         </div>
       </section>
 
+      {!type.isMini ? <AvailabilityEditor value={type.availability} onSave={(json) => patch({ availability: json })} /> : null}
+
+      {/* reminders */}
+      <section className="card p-5 space-y-3">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="font-display text-lg">Session reminders</h2>
+            <p className="text-sm text-neutral-500 mt-1">
+              Emails the client the upcoming session reminder (Settings, Email templates) ahead of each confirmed booking.
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap">
+            <input type="checkbox" checked={type.remindersEnabled} onChange={(e) => patch({ remindersEnabled: e.target.checked })} />
+            Send reminders
+          </label>
+        </div>
+        {type.remindersEnabled ? (
+          <div className="flex items-center gap-2 text-sm">
+            <span>Send</span>
+            <input
+              className="input w-20"
+              value={form.reminderHoursBefore}
+              onChange={(e) => setForm({ ...form, reminderHoursBefore: e.target.value })}
+            />
+            <span>hours before the session (saved with Save).</span>
+          </div>
+        ) : null}
+      </section>
+
+      {type.isMini ? (
+        <section className="card p-5 space-y-3">
+          <h2 className="font-display text-lg">Embed on your website</h2>
+          <p className="text-sm text-neutral-500">
+            In the Website editor, add the <span className="font-medium">Mini session calendar</span> block (Forms) to show this
+            mini session&apos;s open spots live on any page. To embed it on another site, paste this code:
+          </p>
+          <textarea
+            readOnly
+            className="input font-mono text-xs min-h-[70px]"
+            onFocus={(e) => e.target.select()}
+            value={`<iframe src="${origin}/book/${bookingSlug}/embed/${type.id}" style="width:100%;min-height:520px;border:0" title="${type.name}"></iframe>`}
+          />
+        </section>
+      ) : null}
+
       {/* payment schedule */}
       <section className="card p-5 space-y-4">
         <h2 className="font-display text-lg">Payment at booking</h2>
@@ -421,6 +521,7 @@ export function SessionEditor({
             <label className="label">Retainer</label>
             <select
               className="input"
+              disabled={!studioPro}
               value={form.retainerType}
               onChange={(e) => setForm({ ...form, retainerType: e.target.value, retainerValue: e.target.value === "PERCENT" ? "25" : e.target.value === "FIXED" ? "100.00" : "0" })}
             >
@@ -442,8 +543,34 @@ export function SessionEditor({
           ) : null}
         </div>
         <p className="text-xs text-neutral-500">
-          The retainer is collected in the booking flow; the remainder is due by the session date.
+          The retainer is collected in the booking flow (mocked per the owner&rsquo;s payments exclusion); the remainder is due by
+          the session date.
         </p>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            disabled={!studioPro}
+            checked={form.requiresApproval}
+            onChange={(e) => setForm({ ...form, requiresApproval: e.target.checked })}
+          />
+          <span>
+            Manual approval
+            <span className="block text-xs text-neutral-500">
+              Bookings arrive as requests. You approve or decline each one from the Calendar before the client signs or pays.
+            </span>
+          </span>
+        </label>
+        {!studioPro ? (
+          <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2">
+            Retainers at booking and manual approval are Studio Manager Pro features. Your current plan does not include them,
+            so bookings confirm without a payment step. Change plan in{" "}
+            <a className="underline" href="/settings/plan">
+              Settings, Plan
+            </a>
+            .
+          </p>
+        ) : null}
       </section>
 
       {/* add-ons */}

@@ -13,6 +13,8 @@ type Coupon = {
   useLimit: number | null;
   useCount: number;
   expiresAt: string | null;
+  showBanner: boolean;
+  bannerText: string;
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -38,6 +40,8 @@ export default function CouponsClient({ coupons }: { coupons: Coupon[] }) {
   const [minSpend, setMinSpend] = useState("");
   const [useLimit, setUseLimit] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
+  const [showBanner, setShowBanner] = useState(false);
+  const [bannerText, setBannerText] = useState("");
   const [error, setError] = useState("");
 
   async function create(e: React.FormEvent) {
@@ -53,6 +57,8 @@ export default function CouponsClient({ coupons }: { coupons: Coupon[] }) {
         minSpendCents: minSpend ? Math.round(parseFloat(minSpend) * 100) : 0,
         useLimit: useLimit ? Number(useLimit) : null,
         expiresAt: expiresAt || null,
+        showBanner,
+        bannerText,
       }),
     });
     const json = await res.json().catch(() => ({}));
@@ -67,6 +73,24 @@ export default function CouponsClient({ coupons }: { coupons: Coupon[] }) {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ active: !c.active }),
+    });
+    router.refresh();
+  }
+
+  async function toggleBanner(c: Coupon) {
+    await fetch(`/api/store/coupons/${c.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ showBanner: !c.showBanner }),
+    });
+    router.refresh();
+  }
+
+  async function saveBannerText(c: Coupon, text: string) {
+    await fetch(`/api/store/coupons/${c.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bannerText: text }),
     });
     router.refresh();
   }
@@ -120,6 +144,21 @@ export default function CouponsClient({ coupons }: { coupons: Coupon[] }) {
             <label className="label">Expires (opt.)</label>
             <input className="input" type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
           </div>
+          <div className="md:col-span-6 flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={showBanner} onChange={(e) => setShowBanner(e.target.checked)} />
+              Show as a banner in client galleries
+            </label>
+            {showBanner && (
+              <input
+                className="input flex-1"
+                placeholder="Banner text (optional), e.g. Holiday sale, 10% off prints with PRINTS10"
+                value={bannerText}
+                maxLength={140}
+                onChange={(e) => setBannerText(e.target.value)}
+              />
+            )}
+          </div>
           <div className="md:col-span-6 flex justify-end gap-2">
             {error && <p className="text-sm text-red-600 mr-auto">{error}</p>}
             <button type="button" className="btn-secondary" onClick={() => setCreating(false)}>
@@ -141,11 +180,26 @@ export default function CouponsClient({ coupons }: { coupons: Coupon[] }) {
                 <span className="font-medium">{describe(c)}</span>
                 {c.minSpendCents > 0 && <span className="text-neutral-500"> · min ${(c.minSpendCents / 100).toFixed(2)}</span>}
                 {c.expiresAt && <span className="text-neutral-500"> · expires {c.expiresAt}</span>}
+                {c.showBanner && (
+                  <span className="block mt-1">
+                    <input
+                      className="input !py-1 !text-xs max-w-md"
+                      defaultValue={c.bannerText}
+                      placeholder={`Banner: ${describe(c)} with code ${c.code}`}
+                      onBlur={(e) => {
+                        if (e.target.value !== c.bannerText) saveBannerText(c, e.target.value);
+                      }}
+                    />
+                  </span>
+                )}
               </div>
               <span className="text-xs text-neutral-400">
                 used {c.useCount}
                 {c.useLimit ? `/${c.useLimit}` : ""}
               </span>
+              <button className="text-xs underline text-neutral-500" onClick={() => toggleBanner(c)}>
+                {c.showBanner ? "Banner on" : "Banner off"}
+              </button>
               <button className="text-xs underline text-neutral-500" onClick={() => toggle(c)}>
                 {c.active ? "Deactivate" : "Activate"}
               </button>

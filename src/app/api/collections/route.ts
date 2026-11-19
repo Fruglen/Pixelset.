@@ -23,8 +23,12 @@ export async function POST(req: NextRequest) {
 
   // Apply preset defaults if provided
   let presetData: Record<string, unknown> = {};
-  if (typeof body.presetId === "string" && body.presetId) {
-    const preset = await db.preset.findFirst({ where: { id: body.presetId, userId: user.id } });
+  // Phase 5B platform: the account default preset (Gallery settings) applies when none is chosen;
+  // presetId "none" opts out explicitly.
+  const presetId =
+    typeof body.presetId === "string" && body.presetId ? body.presetId : body.presetId === undefined ? user.galleryDefaultPresetId : "";
+  if (presetId && presetId !== "none") {
+    const preset = await db.preset.findFirst({ where: { id: presetId, userId: user.id } });
     if (preset) {
       try {
         const parsed = JSON.parse(preset.settings) as Record<string, unknown>;
@@ -48,7 +52,8 @@ export async function POST(req: NextRequest) {
       ...presetData,
       sets: { create: [{ name: "Highlights", order: 0 }] },
     },
+    include: { sets: { select: { id: true } } },
   });
 
-  return NextResponse.json({ id: collection.id, slug: collection.slug });
+  return NextResponse.json({ id: collection.id, slug: collection.slug, setId: collection.sets[0]?.id ?? "" });
 }

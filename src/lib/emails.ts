@@ -91,6 +91,66 @@ If you need to reschedule, let us know as early as you can.
 {{business_name}}`,
     tokens: ["{{client_name}}", "{{session_type}}", "{{session_date}}", "{{session_location}}", "{{business_name}}"],
   },
+  // Phase 5B presets
+  {
+    key: "QUOTE_REMINDER",
+    name: "Quote awaiting acceptance",
+    description: "Sent by the quote-not-accepted automation while a quote is still open.",
+    subject: "Your quote {{quote_number}} from {{business_name}}",
+    body: `Hi {{client_name}},
+
+Just checking in on quote {{quote_number}} ({{quote_amount}}). You can review the options and accept it here:
+
+{{quote_link}}
+
+Happy to answer any questions.
+{{business_name}}`,
+    tokens: ["{{client_name}}", "{{quote_number}}", "{{quote_amount}}", "{{quote_link}}", "{{business_name}}"],
+  },
+  {
+    key: "QUESTIONNAIRE_REMINDER",
+    name: "Questionnaire reminder",
+    description: "Sent by the questionnaire-incomplete automation when a sent questionnaire has not been completed.",
+    subject: "A quick reminder: {{questionnaire_name}}",
+    body: `Hi {{client_name}},
+
+We're still waiting on your answers to "{{questionnaire_name}}". It only takes a few minutes:
+
+{{questionnaire_link}}
+
+Thank you!
+{{business_name}}`,
+    tokens: ["{{client_name}}", "{{questionnaire_name}}", "{{questionnaire_link}}", "{{business_name}}"],
+  },
+  {
+    key: "QUESTIONNAIRE_REQUEST",
+    name: "Questionnaire or feedback request",
+    description: "Sent when you send a questionnaire, and automatically after delivery for the feedback questionnaire.",
+    subject: "{{questionnaire_name}} from {{business_name}}",
+    body: `Hi {{client_name}},
+
+We'd love a few minutes of your time for "{{questionnaire_name}}":
+
+{{questionnaire_link}}
+
+Thank you so much.
+{{business_name}}`,
+    tokens: ["{{client_name}}", "{{questionnaire_name}}", "{{questionnaire_link}}", "{{business_name}}"],
+  },
+  {
+    key: "BOOKING_COMPLETE",
+    name: "Finish your booking",
+    description: "Sent when you create a booking for a client who still needs to complete their steps.",
+    subject: "Please confirm your {{session_type}} on {{session_date}}",
+    body: `Hi {{client_name}},
+
+We've reserved {{session_type}} on {{session_date}} for you. To confirm it, please complete the remaining steps here:
+
+{{booking_link}}
+
+{{business_name}}`,
+    tokens: ["{{client_name}}", "{{session_type}}", "{{session_date}}", "{{booking_link}}", "{{business_name}}"],
+  },
 ];
 
 export function defaultTemplate(key: string): EmailTemplateDef | undefined {

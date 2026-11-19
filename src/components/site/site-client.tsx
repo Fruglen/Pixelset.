@@ -201,3 +201,44 @@ export function NewsletterForm({ siteSlug, buttonLabel }: { siteSlug: string; bu
     </form>
   );
 }
+
+// Phase 5B: auto listed client galleries with an optional search box.
+export function GalleryFinder({
+  galleries,
+  cols,
+  search,
+}: {
+  galleries: { id: string; name: string; href: string; cover: string; date: string; gates: string[] }[];
+  cols: string;
+  search: boolean;
+}) {
+  const [q, setQ] = useState("");
+  const shown = q.trim() ? galleries.filter((g) => g.name.toLowerCase().includes(q.trim().toLowerCase())) : galleries;
+  const colClass = cols === "2" ? "md:grid-cols-2" : cols === "4" ? "md:grid-cols-4" : "md:grid-cols-3";
+  return (
+    <div>
+      {search ? (
+        <div className="max-w-sm mx-auto mb-8">
+          <input className="site-input" placeholder="Search for your gallery by name" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+      ) : null}
+      {shown.length === 0 ? <p className="site-subtle text-center">No gallery matches that name.</p> : null}
+      <div className={`grid gap-6 ${colClass}`}>
+        {shown.map((c) => (
+          <a key={c.id} href={c.href} className="group">
+            {c.cover ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={c.cover} alt={`${c.name} gallery cover`} className="w-full aspect-[4/3] object-cover mb-3" />
+            ) : (
+              <div className="w-full aspect-[4/3] site-muted-bg mb-3 flex items-center justify-center site-display text-xl">{c.name.slice(0, 1)}</div>
+            )}
+            <h3 className="site-display text-lg group-hover:underline">{c.name}</h3>
+            <p className="site-subtle text-xs mt-1">
+              {[c.date, ...c.gates].filter(Boolean).join(" · ")}
+            </p>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}

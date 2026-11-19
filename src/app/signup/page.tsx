@@ -24,7 +24,7 @@ export default function SignupPage() {
     });
     setBusy(false);
     if (res.ok) {
-      router.push("/dashboard");
+      router.push("/welcome"); // Phase 5B: guided first gallery walkthrough
       router.refresh();
     } else {
       const data = await res.json().catch(() => ({}));
