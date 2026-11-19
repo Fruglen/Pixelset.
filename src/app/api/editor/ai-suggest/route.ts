@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
         "Answer with JSON only: {\"adjust\":{\"brightness\":100,\"contrast\":100,\"saturation\":100,\"warmth\":0},\"reason\":\"one short sentence\"}. Keep corrections tasteful, do not overcook.",
       ].join("\n"),
       [{ mimeType: "image/jpeg", dataBase64: thumb.toString("base64") }],
-      { maxTokens: 300 }
+      { maxTokens: 2000 }
     );
     const clamp = (v: number, lo: number, hi: number, d: number) => {
       const n = Number(v);

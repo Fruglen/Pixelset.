@@ -12,7 +12,7 @@ export function geminiConfigured(): boolean {
 }
 
 export function geminiModel(): string {
-  return process.env.GEMINI_MODEL || "gemini-2.0-flash";
+  return process.env.GEMINI_MODEL || "gemini-3.8-flash";
 }
 
 export class GeminiNotConnectedError extends Error {
@@ -38,7 +38,10 @@ async function generate(parts: GeminiPart[], opts: { json?: boolean; temperature
       contents: [{ role: "user", parts }],
       generationConfig: {
         temperature: opts.temperature ?? 0.4,
-        maxOutputTokens: opts.maxTokens ?? 1024,
+        // Thinking-era models spend part of the output budget on reasoning,
+        // so JSON calls get a floor of 1500 tokens to keep the document from
+        // being truncated mid-object. Non-JSON calls keep the requested size.
+        maxOutputTokens: opts.json ? Math.max(opts.maxTokens ?? 1024, 1500) : opts.maxTokens ?? 1024,
         ...(opts.json ? { responseMimeType: "application/json" } : {}),
       },
     }),
