@@ -2,6 +2,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { planFor, tierLabel } from "@/lib/plans";
 import { geminiConfigured } from "@/lib/gemini";
+import { aiToolsConfigured } from "@/lib/ai-tools";
 import EditorClient from "./editor-client";
 import EditorAddonWall from "./editor-addon";
 
@@ -42,6 +43,7 @@ export default async function EditorPage() {
   return (
     <EditorClient
       aiConnected={geminiConfigured()}
+      aiToolsConnected={aiToolsConfigured()}
       collections={collections
         .filter((c) => c.photos.length > 0)
         .map((c) => ({

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AI_TOOLS } from "@/lib/ai-tools";
 import { useRouter } from "next/navigation";
 
 type Photo = { id: string; url: string; filename: string; setId?: string; raw?: boolean };
@@ -187,7 +188,7 @@ function centeredCrop(frameW: number, frameH: number, ratio: number | null) {
   return { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
 }
 
-export default function EditorClient({ collections, destinations = [], aiConnected = false }: { collections: Col[]; destinations?: Destination[]; aiConnected?: boolean }) {
+export default function EditorClient({ collections, destinations = [], aiConnected = false, aiToolsConnected = false }: { collections: Col[]; destinations?: Destination[]; aiConnected?: boolean; aiToolsConnected?: boolean }) {
   const router = useRouter();
   const [colId, setColId] = useState(collections[0]?.id ?? "");
   const col = collections.find((c) => c.id === colId) ?? collections[0];
@@ -217,6 +218,15 @@ export default function EditorClient({ collections, destinations = [], aiConnect
   const [workingCrop, setWorkingCrop] = useState({ x: 0.05, y: 0.05, w: 0.9, h: 0.9 });
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cropFrameRef = useRef<HTMLDivElement | null>(null);
+  // Pro Editor (Photopea) + open-source AI tools
+  const [mode, setMode] = useState<"standard" | "pro">("standard");
+  const [ppReady, setPpReady] = useState(false);
+  const ppFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const ppReadyRef = useRef(false);
+  const ppOpenedRef = useRef("");
+  const ppSaveRef = useRef<((buf: ArrayBuffer) => void) | null>(null);
+  const [aiToolBusy, setAiToolBusy] = useState("");
+  const [aiToolNote, setAiToolNote] = useState("");
   const dragRef = useRef<{ kind: string; startX: number; startY: number; crop: typeof workingCrop } | null>(null);
 
   // Load the selected photo through the same-origin proxy (never taints the canvas).
@@ -248,6 +258,51 @@ export default function EditorClient({ collections, destinations = [], aiConnect
     if (!img || !canvasRef.current) return;
     render(canvasRef.current, img, adjust, cropMode ? { ...geo, crop: null } : geo, 1400);
   }, [img, adjust, geo, cropMode]);
+
+  // Photopea embed protocol (photopea.com/api): the iframe posts the
+  // string "done" when its API is ready and after each command; the host
+  // opens a photo by posting its ArrayBuffer, runs scripts by posting a
+  // string, and receives saved files back as ArrayBuffer messages.
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.origin !== "https://www.photopea.com") return;
+      if (e.data === "done") {
+        if (!ppReadyRef.current) {
+          ppReadyRef.current = true;
+          setPpReady(true);
+        }
+        return;
+      }
+      if (e.data instanceof ArrayBuffer && ppSaveRef.current) {
+        const waiter = ppSaveRef.current;
+        ppSaveRef.current = null;
+        waiter(e.data);
+      }
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  async function openInPhotopea(photoId: string) {
+    try {
+      const res = await fetch(`/api/editor/photo/${photoId}`);
+      if (!res.ok) throw new Error();
+      const buf = await res.arrayBuffer();
+      ppOpenedRef.current = photoId;
+      ppFrameRef.current?.contentWindow?.postMessage(buf, "https://www.photopea.com", [buf]);
+    } catch {
+      setError("Could not open this photo in the Pro Editor.");
+    }
+  }
+
+  // Open the selected photo in Photopea when entering Pro mode or when
+  // the selection changes while Pro mode is active.
+  useEffect(() => {
+    if (mode !== "pro" || !ppReady || !photo) return;
+    if (ppOpenedRef.current === photo.id) return;
+    void openInPhotopea(photo.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, ppReady, photo]);
 
   const applyPreset = useCallback((name: string) => {
     const p = PRESETS.find((x) => x.name === name);
@@ -405,6 +460,78 @@ export default function EditorClient({ collections, destinations = [], aiConnect
     router.refresh();
   }
 
+  // Pro Editor save round-trip: ask Photopea for the flattened JPEG via
+  // its scripting API, then persist the returned bytes through the exact
+  // same /api/editor/save flow (and destination choices) as the standard
+  // editor. The original photo is never touched.
+  async function saveFromPhotopea() {
+    if (!photo || !ppReady) return;
+    setSaving(true);
+    setError("");
+    const buf = await new Promise<ArrayBuffer | null>((resolve) => {
+      ppSaveRef.current = resolve;
+      ppFrameRef.current?.contentWindow?.postMessage(
+        'app.activeDocument.saveToOE("jpg:0.92");',
+        "https://www.photopea.com"
+      );
+      setTimeout(() => {
+        if (ppSaveRef.current) {
+          ppSaveRef.current = null;
+          resolve(null);
+        }
+      }, 30_000);
+    });
+    if (!buf) {
+      setSaving(false);
+      return setError("Photopea did not return an image. Make sure a photo is open in the Pro Editor.");
+    }
+    let binary = "";
+    const bytes = new Uint8Array(buf);
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)));
+    }
+    const dataUrl = `data:image/jpeg;base64,${btoa(binary)}`;
+    const res = await fetch("/api/editor/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        photoId: photo.id,
+        dataUrl,
+        label: "photopea",
+        destCollectionId: destCol === "__new" ? "" : destCol,
+        destSetId: destSet === "__new" ? "" : destSet,
+        newSetName: destSet === "__new" ? newSetName : "",
+        newCollectionName: destCol === "__new" ? newColName : "",
+      }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) return setError(json.error || "Could not save");
+    setSavedName(json.filename);
+    setSavedWhere(json.collectionId ? { collectionId: json.collectionId, label: json.destination } : null);
+    router.refresh();
+  }
+
+  // Open-source AI tools (AI_TOOLS_ENDPOINT). Results save as new copies
+  // in the same set as the original; when no endpoint is connected the
+  // panel below says so and these never run.
+  async function runAiTool(tool: string) {
+    if (!photo) return;
+    setAiToolBusy(tool);
+    setAiToolNote("");
+    const res = await fetch("/api/editor/ai-tools", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photoId: photo.id, tool }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setAiToolBusy("");
+    if (!res.ok) return setAiToolNote(json.error || "The AI tool failed.");
+    setAiToolNote(`Saved ${json.filename} to ${json.destination}.`);
+    router.refresh();
+  }
+
   if (collections.length === 0) {
     return (
       <div>
@@ -470,6 +597,27 @@ export default function EditorClient({ collections, destinations = [], aiConnect
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Editor mode: standard canvas tools or the Photopea Pro Editor.
+                  Both live behind the same Photo Editor add-on gate. */}
+              <div className="card p-2 flex flex-wrap items-center gap-2">
+                <button
+                  className={`text-xs px-3 py-1.5 rounded-full border ${mode === "standard" ? "bg-neutral-900 text-white border-neutral-900" : "border-neutral-300 text-neutral-600 hover:border-neutral-500"}`}
+                  onClick={() => setMode("standard")}
+                >
+                  Standard editor
+                </button>
+                <button
+                  className={`text-xs px-3 py-1.5 rounded-full border ${mode === "pro" ? "bg-neutral-900 text-white border-neutral-900" : "border-neutral-300 text-neutral-600 hover:border-neutral-500"}`}
+                  onClick={() => setMode("pro")}
+                >
+                  Pro Editor (Photopea)
+                </button>
+                <span className="text-xs text-neutral-400 ml-1">
+                  {mode === "pro" ? "Layers, masks and full retouching in Photopea." : "Quick presets, adjustments, crop and rotate."}
+                </span>
+              </div>
+
+              <div className={mode === "pro" ? "hidden" : "space-y-4"}>
               <div className="card p-3 bg-neutral-900 flex items-center justify-center min-h-72">
                 {loading ? (
                   <p className="text-sm text-neutral-400 py-24">Loading photo…</p>
@@ -639,6 +787,43 @@ export default function EditorClient({ collections, destinations = [], aiConnect
                 <Slider label="Warmth" min={-50} max={50} value={adjust.warmth} onChange={(v) => { setAdjust({ ...adjust, warmth: v }); setPreset(""); }} />
               </div>
 
+              </div>
+
+              {mode === "pro" ? (
+                <div className="card overflow-hidden">
+                  <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-neutral-100">
+                    <p className="text-sm font-medium">Pro Editor, powered by Photopea</p>
+                    <span className="text-xs text-neutral-400">
+                      {ppReady
+                        ? photo
+                          ? `Editing ${photo.filename}`
+                          : "Pick a photo and it opens here"
+                        : "Loading Photopea…"}
+                    </span>
+                    <span className="flex-1" />
+                    <button
+                      className="btn-secondary !py-1 text-xs"
+                      disabled={!photo || !ppReady}
+                      onClick={() => photo && void openInPhotopea(photo.id)}
+                    >
+                      Reopen original
+                    </button>
+                  </div>
+                  <iframe
+                    ref={ppFrameRef}
+                    title="Photopea Pro Editor"
+                    src="https://www.photopea.com"
+                    className="w-full h-[68vh] block bg-white"
+                    allow="clipboard-read; clipboard-write"
+                  />
+                  <p className="px-4 py-2.5 text-xs text-neutral-400 border-t border-neutral-100">
+                    Photopea runs entirely in your browser. When you finish, press “Save from Photopea as copy”
+                    below: the flattened result is stored as a new photo in the destination chosen below, and the
+                    original is never touched.
+                  </p>
+                </div>
+              ) : null}
+
               <div className="card p-4 flex flex-wrap items-end gap-3">
                 <div>
                   <label className="label">Export to gallery</label>
@@ -693,9 +878,15 @@ export default function EditorClient({ collections, destinations = [], aiConnect
               </div>
 
               <div className="flex items-center gap-3">
-                <button className="btn-primary" onClick={save} disabled={saving || loading || !img || cropMode}>
-                  {saving ? "Saving…" : "Save as copy"}
-                </button>
+                {mode === "pro" ? (
+                  <button className="btn-primary" onClick={saveFromPhotopea} disabled={saving || !ppReady || !photo}>
+                    {saving ? "Saving…" : "Save from Photopea as copy"}
+                  </button>
+                ) : (
+                  <button className="btn-primary" onClick={save} disabled={saving || loading || !img || cropMode}>
+                    {saving ? "Saving…" : "Save as copy"}
+                  </button>
+                )}
                 <button
                   className="btn-secondary"
                   onClick={() => {
@@ -734,6 +925,47 @@ export default function EditorClient({ collections, destinations = [], aiConnect
                   </span>
                 )}
                 {error && <span className="text-sm text-red-600">{error}</span>}
+              </div>
+
+              {/* Open-source AI tools: wired to AI_TOOLS_ENDPOINT. With no
+                  endpoint connected this panel says so plainly and the
+                  tools stay off (nothing is faked). */}
+              <div className="card p-4">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-medium">AI tools</p>
+                  {aiToolsConnected ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-brand-50 text-brand-700">Connected</span>
+                  ) : (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-500">Not connected</span>
+                  )}
+                </div>
+                {aiToolsConnected ? (
+                  <>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {AI_TOOLS.map((t) => (
+                        <button
+                          key={t.id}
+                          className="btn-secondary !py-1.5 text-xs"
+                          disabled={!!aiToolBusy || !photo}
+                          onClick={() => void runAiTool(t.id)}
+                        >
+                          {aiToolBusy === t.id ? "Working…" : t.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-neutral-400 mt-2">
+                      Results save as new copies in the same set as the original. Object removal currently runs
+                      in the endpoint's automatic mode (no mask painting yet).
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-neutral-500 mt-2">
+                    Background removal, object removal, upscaling and face restore run on an open source AI
+                    endpoint. It is not connected yet, so these tools are off rather than faked. Once the
+                    endpoint is connected, this panel lights up.
+                  </p>
+                )}
+                {aiToolNote ? <p className="text-sm text-neutral-600 mt-2">{aiToolNote}</p> : null}
               </div>
             </div>
           )}

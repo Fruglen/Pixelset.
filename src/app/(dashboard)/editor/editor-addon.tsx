@@ -38,6 +38,8 @@ export default function EditorAddonWall({ planLabel }: { planLabel: string }) {
         <p className="font-medium">What the add on unlocks</p>
         <ul className="text-sm text-neutral-600 space-y-1.5 list-disc pl-5">
           <li>Canvas editing with presets, adjustments, crop, rotate and straighten</li>
+          <li>Pro Editor powered by Photopea: layers, masks and full retouching</li>
+          <li>AI tools (background removal, object removal, upscaling, face restore) when an AI endpoint is connected</li>
           <li>AI culling and AI editing suggestions</li>
           <li>RAW editing through full size previews</li>
           <li>Edited copies saved straight back into any client gallery</li>
