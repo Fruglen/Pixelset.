@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { slugify, generatePin, endOfDay } from "@/lib/utils";
 import { permissionError } from "@/lib/team";
+import { deletePrefix } from "@/lib/storage";
 
 async function ownedCollection(id: string) {
   const user = await getCurrentUser();
@@ -106,12 +107,13 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const denied = await permissionError("delete");
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   await db.collection.delete({ where: { id: collection.id } });
-  // Remove uploaded files for this collection
+  // Remove uploaded files for this collection (local disk and B2)
   try {
     await rm(path.join(process.cwd(), "public", "uploads", collection.id), {
       recursive: true,
       force: true,
     });
   } catch {}
+  await deletePrefix(`uploads/${collection.id}/`).catch(() => undefined);
   return NextResponse.json({ ok: true });
 }

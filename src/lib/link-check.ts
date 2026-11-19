@@ -2,6 +2,7 @@ import { stat } from "fs/promises";
 import path from "path";
 import { db } from "./db";
 import { parseBlocks } from "./blocks";
+import { b2Enabled, headSize, keyFromStoredUrl } from "./storage";
 
 // Phase 5B platform: broken link checker for the website (SEO tab). Walks every
 // block of every page and the body of every blog post, collects links and
@@ -96,13 +97,14 @@ export async function checkWebsiteLinks(websiteId: string, origin = ""): Promise
   async function checkInternal(raw: string): Promise<{ ok: boolean; status: string }> {
     const p = raw.split(/[?#]/)[0].replace(/\/+$/, "") || "/";
     const lower = p.toLowerCase();
-    if (lower.startsWith("/uploads/")) {
+    if (lower.startsWith("/uploads/") || lower.startsWith("/media/")) {
+      const key = keyFromStoredUrl(decodeURIComponent(p));
       try {
-        await stat(path.join(process.cwd(), "public", decodeURIComponent(p)));
+        await stat(path.join(process.cwd(), "public", key ?? decodeURIComponent(p)));
         return { ok: true, status: "file" };
-      } catch {
-        return { ok: false, status: "missing file" };
-      }
+      } catch {}
+      if (key && b2Enabled() && (await headSize(key)) !== null) return { ok: true, status: "file" };
+      return { ok: false, status: "missing file" };
     }
     const g = lower.match(/^\/g\/([^/]+)/);
     if (g) return (await db.collection.findUnique({ where: { slug: g[1] } })) ? { ok: true, status: "gallery" } : { ok: false, status: "missing gallery" };

@@ -1,5 +1,4 @@
-import { readFile } from "fs/promises";
-import path from "path";
+import { isStoredUrl, readStoredBytes } from "./storage";
 
 // Night build (Photo Editor): on device image analysis used by the culling
 // screen and the editor. Everything here is computed locally with sharp:
@@ -18,12 +17,8 @@ export interface PhotoLike {
 export async function loadPhotoBytes(photo: PhotoLike): Promise<Buffer | null> {
   const src = photo.mediaType === "RAW" ? photo.posterUrl : photo.url;
   if (!src) return null;
-  if (!photo.isExternal && src.startsWith("/uploads/")) {
-    try {
-      return await readFile(path.join(process.cwd(), "public", src));
-    } catch {
-      return null;
-    }
+  if (!photo.isExternal && isStoredUrl(src)) {
+    return readStoredBytes(src);
   }
   try {
     const res = await fetch(src);

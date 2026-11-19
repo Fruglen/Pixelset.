@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "fs/promises";
-import path from "path";
 import { db } from "@/lib/db";
 import { contentTypeFor } from "@/lib/media";
+import { isStoredUrl, readStoredBytes } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -31,12 +30,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   if (!url) return NextResponse.json({ error: "File unavailable" }, { status: 404 });
 
   let buffer: Buffer;
-  if (url.startsWith("/uploads/")) {
-    try {
-      buffer = await readFile(path.join(process.cwd(), "public", url));
-    } catch {
-      return NextResponse.json({ error: "File unavailable" }, { status: 404 });
-    }
+  if (isStoredUrl(url)) {
+    const stored = await readStoredBytes(url);
+    if (!stored) return NextResponse.json({ error: "File unavailable" }, { status: 404 });
+    buffer = stored;
   } else {
     try {
       const res = await fetch(url);

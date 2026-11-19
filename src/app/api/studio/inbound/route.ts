@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { logStudioMessage, upsertContact } from "@/lib/studio";
 import { notify } from "@/lib/notify";
+import { saveStoredBuffer } from "@/lib/storage";
 
 // Phase 5B: inbound email webhook for the Studio inbox.
 //
@@ -109,10 +110,8 @@ export async function POST(req: NextRequest) {
           if (buf.length > 0 && buf.length <= 15 * 1024 * 1024) {
             const safe = name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "attachment";
             const stored = `${Date.now()}-${randomBytes(4).toString("hex")}-${safe}`;
-            const dir = path.join(process.cwd(), "public", "uploads", "inbox", profile.userId);
-            await mkdir(dir, { recursive: true });
-            await writeFile(path.join(dir, stored), buf);
-            lines.push(`Attachment: ${name} - /uploads/inbox/${profile.userId}/${stored}`);
+            const url = await saveStoredBuffer(`uploads/inbox/${profile.userId}/${stored}`, buf);
+            lines.push(`Attachment: ${name} - ${url}`);
             continue;
           }
         } catch {

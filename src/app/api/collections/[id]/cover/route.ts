@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mkdir, writeFile, rm } from "fs/promises";
-import path from "path";
 import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { deleteStored, saveStoredBuffer } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -38,15 +37,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   } catch {
     return NextResponse.json({ error: "That file is not a readable image" }, { status: 400 });
   }
-  const dir = path.join(process.cwd(), "public", "uploads", collection.id);
-  await mkdir(dir, { recursive: true });
   const ext = file.type === "image/gif" ? "gif" : file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
   const name = `cover-${randomBytes(5).toString("hex")}.${ext}`;
-  await writeFile(path.join(dir, name), buf);
-  if (collection.coverImageUrl.startsWith(`/uploads/${collection.id}/cover-`)) {
-    await rm(path.join(process.cwd(), "public", collection.coverImageUrl), { force: true });
+  const url = await saveStoredBuffer(`uploads/${collection.id}/${name}`, buf, file.type);
+  if (collection.coverImageUrl.includes(`/uploads/${collection.id}/cover-`)) {
+    await deleteStored(collection.coverImageUrl);
   }
-  const url = `/uploads/${collection.id}/${name}`;
   await db.collection.update({ where: { id: collection.id }, data: { coverImageUrl: url } });
   return NextResponse.json({ ok: true, url, animated });
 }
@@ -54,8 +50,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const collection = await owned(params.id);
   if (!collection) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (collection.coverImageUrl.startsWith(`/uploads/${collection.id}/cover-`)) {
-    await rm(path.join(process.cwd(), "public", collection.coverImageUrl), { force: true });
+  if (collection.coverImageUrl.includes(`/uploads/${collection.id}/cover-`)) {
+    await deleteStored(collection.coverImageUrl);
   }
   await db.collection.update({ where: { id: collection.id }, data: { coverImageUrl: "" } });
   return NextResponse.json({ ok: true });

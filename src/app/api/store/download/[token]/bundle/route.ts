@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "fs/promises";
-import path from "path";
 import { db } from "@/lib/db";
+import { isStoredUrl, readStoredBytes } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -12,12 +11,8 @@ export const runtime = "nodejs";
 const PART_CAP = Math.max(10 * 1024 * 1024, Number(process.env.STORE_ZIP_PART_BYTES || 150 * 1024 * 1024));
 
 async function loadBytes(url: string): Promise<Buffer | null> {
-  if (url.startsWith("/uploads/")) {
-    try {
-      return await readFile(path.join(process.cwd(), "public", url));
-    } catch {
-      return null;
-    }
+  if (isStoredUrl(url)) {
+    return readStoredBytes(url);
   }
   try {
     const res = await fetch(url);

@@ -1,8 +1,8 @@
-import { createReadStream } from "fs";
 import { stat } from "fs/promises";
 import path from "path";
 import { Prisma } from "@prisma/client";
 import { db } from "./db";
+import { b2Enabled, headSize, isStoredUrl, keyFromStoredUrl, readStoredBytes } from "./storage";
 
 // Phase 5B: full account export. Every model in the schema that belongs to the
 // account (directly through userId, or through a parent that has one) is
@@ -149,8 +149,8 @@ export async function originalsManifest(userId: string): Promise<OriginalFile[]>
       folder: "media",
       filename: m.filename,
       url: m.url,
-      external: !m.url.startsWith("/uploads/"),
-      bytes: await localSize(m.url, !m.url.startsWith("/uploads/")),
+      external: !isStoredUrl(m.url),
+      bytes: await localSize(m.url, !isStoredUrl(m.url)),
       zipPath: unique(`originals/website/${safeName(m.filename)}`),
     });
   }
@@ -158,16 +158,18 @@ export async function originalsManifest(userId: string): Promise<OriginalFile[]>
 }
 
 async function localSize(url: string, external: boolean): Promise<number | null> {
-  if (external || !url.startsWith("/uploads/")) return null;
+  if (external || !isStoredUrl(url)) return null;
   try {
     return (await stat(localPath(url))).size;
-  } catch {
-    return null;
-  }
+  } catch {}
+  const key = keyFromStoredUrl(url);
+  if (key && b2Enabled()) return headSize(key);
+  return null;
 }
 
 function localPath(url: string) {
-  return path.join(process.cwd(), "public", url);
+  const key = keyFromStoredUrl(url);
+  return path.join(process.cwd(), "public", key ?? url.replace(/^\//, ""));
 }
 
 /** Build the export ZIP as a Node stream. includeFiles adds the original local files (streamed from disk). */
@@ -187,7 +189,6 @@ export async function buildAccountExport(userId: string, includeFiles: boolean) 
   const manifestRows = manifest.map((f) => {
     let included = "no";
     if (includeFiles && !f.external && f.bytes !== null) {
-      zip.file(f.zipPath, createReadStream(localPath(f.url)), { binary: true });
       included = "yes";
       bundled++;
     } else if (!f.external && f.bytes === null) {
@@ -196,6 +197,13 @@ export async function buildAccountExport(userId: string, includeFiles: boolean) 
     } else if (f.external) included = "external link";
     return { ...f, inZip: included, zipPath: included === "yes" ? f.zipPath : "" };
   });
+  if (includeFiles) {
+    for (const f of manifest) {
+      if (f.external || f.bytes === null) continue;
+      const bytes = await readStoredBytes(f.url);
+      if (bytes) zip.file(f.zipPath, bytes);
+    }
+  }
   const mHeaders = ["kind", "owner", "folder", "filename", "url", "external", "bytes", "inZip", "zipPath"];
   zip.file("originals-manifest.csv", toCsv(mHeaders, manifestRows));
   zip.file("originals-manifest.json", JSON.stringify(manifestRows, null, 2));

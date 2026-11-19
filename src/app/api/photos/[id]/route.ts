@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { rm } from "fs/promises";
-import path from "path";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { deleteStored, isStoredUrl } from "@/lib/storage";
 
 async function ownedPhoto(id: string) {
   const user = await getCurrentUser();
@@ -41,10 +40,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const photo = await ownedPhoto(params.id);
   if (!photo) return NextResponse.json({ error: "Not found" }, { status: 404 });
   await db.photo.delete({ where: { id: photo.id } });
-  if (!photo.isExternal && photo.url.startsWith("/uploads/")) {
-    try {
-      await rm(path.join(process.cwd(), "public", photo.url), { force: true });
-    } catch {}
+  if (!photo.isExternal && isStoredUrl(photo.url)) {
+    await deleteStored(photo.url);
+  }
+  if (photo.posterUrl && isStoredUrl(photo.posterUrl)) {
+    await deleteStored(photo.posterUrl);
   }
   // Clear cover reference if this photo was the cover
   await db.collection.updateMany({

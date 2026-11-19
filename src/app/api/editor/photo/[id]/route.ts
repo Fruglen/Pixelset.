@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "fs/promises";
-import path from "path";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { isStoredUrl, readStoredBytes } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -22,12 +21,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const srcUrl = photo.mediaType === "RAW" ? photo.posterUrl : photo.url;
   if (!srcUrl) return NextResponse.json({ error: "This RAW file has no preview to edit" }, { status: 400 });
   let buffer: Buffer;
-  if (!photo.isExternal && srcUrl.startsWith("/uploads/")) {
-    try {
-      buffer = await readFile(path.join(process.cwd(), "public", srcUrl));
-    } catch {
-      return NextResponse.json({ error: "File unavailable" }, { status: 404 });
-    }
+  if (!photo.isExternal && isStoredUrl(srcUrl)) {
+    const stored = await readStoredBytes(srcUrl);
+    if (!stored) return NextResponse.json({ error: "File unavailable" }, { status: 404 });
+    buffer = stored;
   } else {
     try {
       const res = await fetch(srcUrl);

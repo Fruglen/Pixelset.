@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mkdir, writeFile, unlink } from "fs/promises";
-import path from "path";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { googleFontFamilies } from "@/lib/fonts";
 import { siteExt, updateSiteExt, type CustomFont } from "@/lib/site-ext";
 import { WEBSITE_LIMITS, planFor, tierLabel } from "@/lib/plans";
+import { deleteStored, saveStoredBuffer } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -83,12 +82,10 @@ export async function POST(req: NextRequest) {
   }
   const buf = Buffer.from(await file.arrayBuffer());
   const dirName = `site-${user.id}`;
-  const dir = path.join(process.cwd(), "public", "uploads", dirName);
-  await mkdir(dir, { recursive: true });
   const filename = `font-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${kind.ext}`;
-  await writeFile(path.join(dir, filename), buf);
+  const url = await saveStoredBuffer(`uploads/${dirName}/${filename}`, buf, file.type || `font/${kind.ext}`);
   const media = await db.siteMedia.create({
-    data: { userId: user.id, kind: "FONT", url: `/uploads/${dirName}/${filename}`, filename: file.name, mime: file.type || `font/${kind.ext}`, size: file.size },
+    data: { userId: user.id, kind: "FONT", url, filename: file.name, mime: file.type || `font/${kind.ext}`, size: file.size },
   });
   const font: CustomFont = { id: media.id, name, url: media.url, format: kind.format, mediaId: media.id };
   try {
@@ -137,7 +134,7 @@ export async function DELETE(req: NextRequest) {
   const media = await db.siteMedia.findFirst({ where: { id: font.mediaId, userId: user.id } });
   if (media) {
     await db.siteMedia.delete({ where: { id: media.id } });
-    await unlink(path.join(process.cwd(), "public", media.url)).catch(() => {});
+    await deleteStored(media.url);
   }
   return NextResponse.json({ ok: true });
 }

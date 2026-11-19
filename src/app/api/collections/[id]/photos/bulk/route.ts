@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { rm, copyFile, mkdir } from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { permissionError } from "@/lib/team";
+import { copyStored, deleteStored, isStoredUrl } from "@/lib/storage";
 
 // Phase 5B: one action applied to many selected photos.
 // actions: move | copy | delete | rename | watermark | private | star
@@ -39,22 +39,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // Copy (or move to another collection): duplicate the file for local uploads.
       let url = p.url;
       let posterUrl = p.posterUrl;
-      if (!p.isExternal && p.url.startsWith("/uploads/")) {
-        const dir = path.join(process.cwd(), "public", "uploads", target.collectionId);
-        await mkdir(dir, { recursive: true });
+      if (!p.isExternal && isStoredUrl(p.url)) {
         const name = `${randomBytes(6).toString("hex")}-${path.basename(p.url).replace(/^[0-9a-f]{12}-/, "")}`;
-        try {
-          await copyFile(path.join(process.cwd(), "public", p.url), path.join(dir, name));
-          url = `/uploads/${target.collectionId}/${name}`;
-        } catch {
-          continue;
-        }
-        if (p.posterUrl.startsWith("/uploads/")) {
+        const copied = await copyStored(p.url, `uploads/${target.collectionId}/${name}`);
+        if (!copied) continue;
+        url = copied;
+        if (p.posterUrl && isStoredUrl(p.posterUrl)) {
           const pn = `${randomBytes(6).toString("hex")}-poster.jpg`;
-          try {
-            await copyFile(path.join(process.cwd(), "public", p.posterUrl), path.join(dir, pn));
-            posterUrl = `/uploads/${target.collectionId}/${pn}`;
-          } catch {}
+          const copiedPoster = await copyStored(p.posterUrl, `uploads/${target.collectionId}/${pn}`);
+          if (copiedPoster) posterUrl = copiedPoster;
         }
       }
       await db.photo.create({
@@ -78,7 +71,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       });
       if (action === "move") {
         await db.photo.delete({ where: { id: p.id } });
-        if (!p.isExternal && p.url.startsWith("/uploads/")) await rm(path.join(process.cwd(), "public", p.url), { force: true });
+        if (!p.isExternal && isStoredUrl(p.url)) await deleteStored(p.url);
       }
     }
     return NextResponse.json({ ok: true, count: photos.length });
@@ -89,9 +82,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (denied) return NextResponse.json({ error: denied }, { status: 403 });
     for (const p of photos) {
       await db.photo.delete({ where: { id: p.id } });
-      if (!p.isExternal && p.url.startsWith("/uploads/")) {
-        await rm(path.join(process.cwd(), "public", p.url), { force: true });
-        if (p.posterUrl.startsWith("/uploads/")) await rm(path.join(process.cwd(), "public", p.posterUrl), { force: true });
+      if (!p.isExternal && isStoredUrl(p.url)) {
+        await deleteStored(p.url);
+        if (p.posterUrl && isStoredUrl(p.posterUrl)) await deleteStored(p.posterUrl);
       }
     }
     if (collection.coverPhotoId && ids.includes(collection.coverPhotoId)) {

@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mkdir, writeFile } from "fs/promises";
-import path from "path";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { permissionError } from "@/lib/team";
 import { slugify } from "@/lib/utils";
+import { saveStoredBuffer } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -101,9 +100,7 @@ export async function POST(req: NextRequest) {
   const safeLabel = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "edited";
   const filename = `${base}-${safeLabel}-${Date.now().toString(36)}.jpg`;
 
-  const dir = path.join(process.cwd(), "public", "uploads", destCollectionId);
-  await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, filename), jpeg);
+  const url = await saveStoredBuffer(`uploads/${destCollectionId}/${filename}`, jpeg, "image/jpeg");
 
   const count = await db.photo.count({ where: { setId: destSetId } });
   const created = await db.photo.create({
@@ -111,7 +108,7 @@ export async function POST(req: NextRequest) {
       collectionId: destCollectionId,
       setId: destSetId,
       filename,
-      url: `/uploads/${destCollectionId}/${filename}`,
+      url,
       isExternal: false,
       width,
       height,

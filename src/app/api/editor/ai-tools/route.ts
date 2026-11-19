@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mkdir, readFile, writeFile } from "fs/promises";
-import path from "path";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { permissionError } from "@/lib/team";
 import { AI_TOOLS, aiToolsConfigured, aiToolsEndpoint, type AiToolId } from "@/lib/ai-tools";
+import { isStoredUrl, readStoredBytes, saveStoredBuffer } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -50,12 +49,10 @@ export async function POST(req: NextRequest) {
   const srcUrl = photo.mediaType === "RAW" ? photo.posterUrl : photo.url;
   if (!srcUrl) return NextResponse.json({ error: "This RAW file has no preview to edit" }, { status: 400 });
   let source: Buffer;
-  if (!photo.isExternal && srcUrl.startsWith("/uploads/")) {
-    try {
-      source = await readFile(path.join(process.cwd(), "public", srcUrl));
-    } catch {
-      return NextResponse.json({ error: "File unavailable" }, { status: 404 });
-    }
+  if (!photo.isExternal && isStoredUrl(srcUrl)) {
+    const stored = await readStoredBytes(srcUrl);
+    if (!stored) return NextResponse.json({ error: "File unavailable" }, { status: 404 });
+    source = stored;
   } else {
     try {
       const res = await fetch(srcUrl);
@@ -117,9 +114,7 @@ export async function POST(req: NextRequest) {
 
   const base = photo.filename.replace(/\.[a-z0-9]+$/i, "");
   const filename = `${base}-${tool}-${Date.now().toString(36)}.jpg`;
-  const dir = path.join(process.cwd(), "public", "uploads", photo.collectionId);
-  await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, filename), jpeg);
+  const url = await saveStoredBuffer(`uploads/${photo.collectionId}/${filename}`, jpeg, "image/jpeg");
 
   const count = await db.photo.count({ where: { setId: photo.setId } });
   const created = await db.photo.create({
@@ -127,7 +122,7 @@ export async function POST(req: NextRequest) {
       collectionId: photo.collectionId,
       setId: photo.setId,
       filename,
-      url: `/uploads/${photo.collectionId}/${filename}`,
+      url,
       isExternal: false,
       width,
       height,

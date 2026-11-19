@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mkdir, writeFile } from "fs/promises";
-import path from "path";
 import { randomBytes } from "crypto";
 import { getCurrentUser } from "@/lib/auth";
+import { saveStoredBuffer } from "@/lib/storage";
 
 // Night build: inbox attachments (PDFs and mood board images). Files are
 // stored with the photographer's other uploads and linked from the message.
@@ -20,8 +19,6 @@ export async function POST(req: NextRequest) {
   if (file.size > MAX_BYTES) return NextResponse.json({ error: "That file is over the 15 MB limit" }, { status: 400 });
   const safe = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 80) || `attachment.${ext}`;
   const stored = `${Date.now()}-${randomBytes(4).toString("hex")}-${safe}`;
-  const dir = path.join(process.cwd(), "public", "uploads", "inbox", user.id);
-  await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, stored), Buffer.from(await file.arrayBuffer()));
-  return NextResponse.json({ name: file.name, url: `/uploads/inbox/${user.id}/${stored}`, size: file.size, mime: file.type });
+  const url = await saveStoredBuffer(`uploads/inbox/${user.id}/${stored}`, Buffer.from(await file.arrayBuffer()), file.type);
+  return NextResponse.json({ name: file.name, url, size: file.size, mime: file.type });
 }

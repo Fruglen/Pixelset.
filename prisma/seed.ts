@@ -4,6 +4,7 @@ import { mkdir, rm, writeFile } from "fs/promises";
 import path from "path";
 import { createWebsiteForUser } from "../src/lib/site-service";
 import { seed5b } from "./seed-5b";
+import { cleanupQaArtifacts } from "./cleanup-qa";
 
 const db = new PrismaClient();
 
@@ -79,6 +80,15 @@ async function placeImage(name: string) {
 }
 
 async function main() {
+  // QA cleanup runs on every boot, before the guard: it removes the test
+  // artifacts the Nov 19 functional test left on the demo data and is a
+  // no-op once they are gone.
+  const cleaned = await cleanupQaArtifacts(db).catch((e) => {
+    console.log(`QA cleanup skipped: ${e instanceof Error ? e.message : e}`);
+    return [] as string[];
+  });
+  for (const line of cleaned) console.log(`QA cleanup: ${line}`);
+
   // Boot guard: on instance restarts the database already has the demo
   // account, so skip the (heavy) seed entirely. SEED_FORCE=1 rebuilds.
   const existing = await db.user.findUnique({ where: { email: "demo@pixelset.app" } });

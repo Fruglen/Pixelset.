@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mkdir, writeFile } from "fs/promises";
-import path from "path";
 import { randomBytes } from "crypto";
 import sharp from "sharp";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { validHex } from "@/lib/brand";
 import { FONT_PAIRINGS } from "@/lib/design";
+import { saveStoredBuffer } from "@/lib/storage";
 
 // Phase 5B platform: the single brand source (logo, colours, heading font).
 export async function PATCH(req: NextRequest) {
@@ -56,11 +55,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Logo must be a PNG, JPEG, WEBP or SVG image" }, { status: 400 });
     }
   }
-  const dir = path.join(process.cwd(), "public", "uploads", "brand");
-  await mkdir(dir, { recursive: true });
   const name = `${user.id}-${randomBytes(4).toString("hex")}.${ext}`;
-  await writeFile(path.join(dir, name), buf);
-  const url = `/uploads/brand/${name}`;
+  const url = await saveStoredBuffer(`uploads/brand/${name}`, buf, file.type);
   await db.user.update({ where: { id: user.id }, data: { brandLogoUrl: url } });
   return NextResponse.json({ ok: true, url });
 }

@@ -1,6 +1,7 @@
 import { readFile, mkdir, writeFile, stat } from "fs/promises";
 import path from "path";
 import { createHash } from "crypto";
+import { isStoredUrl, readStoredBytes } from "./storage";
 
 // Phase 5B: server-side watermarking.
 //
@@ -60,10 +61,11 @@ async function overlaySvg(s: WatermarkSettings, width: number, height: number): 
   const markW = Math.max(40, Math.round((width * s.scale) / 100));
   const alpha = s.opacity / 100;
   if (s.mode === "image") {
-    if (!s.imageUrl.startsWith("/uploads/")) return null;
+    if (!isStoredUrl(s.imageUrl)) return null;
     try {
       const sharp = (await import("sharp")).default;
-      const raw = await readFile(path.join(process.cwd(), "public", s.imageUrl));
+      const raw = await readStoredBytes(s.imageUrl);
+      if (!raw) return null;
       const png = await sharp(raw).resize({ width: markW }).png().toBuffer();
       const meta = await sharp(png).metadata();
       const markH = meta.height ?? Math.round(markW / 3);
@@ -135,12 +137,8 @@ export async function applyWatermark(input: Buffer, s: WatermarkSettings, maxPx:
 
 /** Load the bytes of a stored photo (local upload or external URL). */
 export async function loadPhotoBytes(url: string, isExternal: boolean): Promise<Buffer | null> {
-  if (!isExternal && url.startsWith("/uploads/")) {
-    try {
-      return await readFile(path.join(process.cwd(), "public", url));
-    } catch {
-      return null;
-    }
+  if (!isExternal && isStoredUrl(url)) {
+    return readStoredBytes(url);
   }
   try {
     const res = await fetch(url);

@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "fs/promises";
-import path from "path";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { parseBlocks } from "@/lib/blocks";
 import { collectImageRefs, setImageAlt, basicAltSuggestion, type ImageRef } from "@/lib/image-alt";
 import { geminiConfigured, geminiVision, GeminiNotConnectedError } from "@/lib/gemini";
+import { readStoredBytes } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -20,8 +19,9 @@ const MIME_BY_EXT: Record<string, string> = {
 
 async function loadImage(url: string, origin: string): Promise<{ dataBase64: string; mimeType: string } | null> {
   try {
-    if (url.startsWith("/uploads/")) {
-      const data = await readFile(path.join(process.cwd(), "public", url));
+    if (url.startsWith("/uploads/") || url.startsWith("/media/")) {
+      const data = await readStoredBytes(url);
+      if (!data) return null;
       const ext = url.split(".").pop()?.toLowerCase() ?? "";
       return { dataBase64: data.toString("base64"), mimeType: MIME_BY_EXT[ext] ?? "image/jpeg" };
     }

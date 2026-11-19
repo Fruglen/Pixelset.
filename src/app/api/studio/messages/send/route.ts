@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     .filter((a): a is { name: string; url: string } => {
       if (!a || typeof a !== "object") return false;
       const o = a as Record<string, unknown>;
-      return typeof o.name === "string" && typeof o.url === "string" && o.url.startsWith("/uploads/inbox/");
+      return typeof o.name === "string" && typeof o.url === "string" && (o.url.startsWith("/uploads/inbox/") || o.url.startsWith("/media/uploads/inbox/"));
     })
     .slice(0, 10)
     .map((a) => ({ name: a.name.slice(0, 160), url: a.url }));

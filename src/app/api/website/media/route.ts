@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mkdir, writeFile } from "fs/promises";
-import path from "path";
 import { randomBytes } from "crypto";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { safeName } from "@/lib/uploads";
 import { WEBSITE_LIMITS, capMessage, planFor, tierLabel } from "@/lib/plans";
+import { saveStoredBuffer } from "@/lib/storage";
 
 // Website media library: uploads made inside the block editor.
 // Accepts JPEG, PNG, GIF, WebP, SVG images and MP4/WebM/MOV video.
@@ -60,13 +59,11 @@ export async function POST(req: NextRequest) {
   }
 
   const dirName = `site-${user.id}`;
-  const dir = path.join(process.cwd(), "public", "uploads", dirName);
-  await mkdir(dir, { recursive: true });
   const stored = `${randomBytes(5).toString("hex")}-${safeName(file.name)}`;
-  await writeFile(path.join(dir, stored), Buffer.from(await file.arrayBuffer()));
+  const url = await saveStoredBuffer(`uploads/${dirName}/${stored}`, Buffer.from(await file.arrayBuffer()), mime);
 
   const media = await db.siteMedia.create({
-    data: { userId: user.id, filename: file.name, url: `/uploads/${dirName}/${stored}`, mime, kind: rule.kind, size: file.size },
+    data: { userId: user.id, filename: file.name, url, mime, kind: rule.kind, size: file.size },
   });
   return NextResponse.json({ media });
 }

@@ -80,11 +80,158 @@ async function receivedChunks(collectionId: string, uploadId: string): Promise<S
   }
 }
 
+type DirectInit = {
+  key: string;
+  s3UploadId: string;
+  partSize: number;
+  parts: { partNumber: number; size: number; etag: string }[];
+};
+
+async function directInit(collectionId: string, uploadId: string, setId: string, file: File): Promise<DirectInit | null | { fatal: string }> {
+  try {
+    const res = await fetch(`/api/collections/${collectionId}/photos/direct`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "init", uploadId, setId, name: file.name, type: file.type, size: file.size }),
+    });
+    if (res.status === 409 || res.status === 404) return null; // direct uploads unavailable here
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      if (data?.fatal && data?.error) return { fatal: data.error };
+      return null;
+    }
+    if (!data?.key || !data?.s3UploadId) return null;
+    return data as DirectInit;
+  } catch {
+    return null;
+  }
+}
+
+async function directSign(collectionId: string, key: string, s3UploadId: string, partNumber: number): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/collections/${collectionId}/photos/direct`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "sign", key, s3UploadId, partNumber }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    return typeof data?.url === "string" ? data.url : null;
+  } catch {
+    return null;
+  }
+}
+
+function putPart(url: string, blob: Blob, onProgress: (loaded: number) => void): Promise<{ ok: boolean; etag?: string }> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.timeout = 120_000;
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve({ ok: true, etag: xhr.getResponseHeader("ETag") || undefined });
+      } else resolve({ ok: false });
+    };
+    xhr.onerror = () => resolve({ ok: false });
+    xhr.ontimeout = () => resolve({ ok: false });
+    xhr.send(blob);
+  });
+}
+
 /**
- * Upload one file with progress, chunked and resumable, resolving to an error
- * string or null. `onRetry` reports a retry in progress (attempt, error).
+ * Direct-to-storage upload: bytes go from the browser straight to Backblaze
+ * (presigned multipart URLs, 8 MB parts), never through the app server.
+ * Returns an error string, null on success, or undefined when direct uploads
+ * are unavailable and the caller should use the chunk flow instead.
+ */
+async function uploadOneDirect(
+  collectionId: string,
+  setId: string,
+  file: File,
+  onProgress: (pct: number) => void,
+  onRetry?: (attempt: number, error: string) => void
+): Promise<string | null | undefined> {
+  const uploadId = uploadIdFor(collectionId, setId, file);
+  const init = await directInit(collectionId, uploadId, setId, file);
+  if (init === null) return undefined;
+  if ("fatal" in init) return init.fatal;
+  const partSize = init.partSize || 8 * 1024 * 1024;
+  const total = Math.max(1, Math.ceil(file.size / partSize));
+  const partLen = (i: number) => Math.min(partSize, file.size - i * partSize);
+  const etags = new Map<number, string>();
+  for (const p of init.parts) {
+    // Trust a listed part only when its size matches the expected slice.
+    if (p.partNumber >= 1 && p.partNumber <= total && p.size === partLen(p.partNumber - 1) && p.etag) {
+      etags.set(p.partNumber, p.etag);
+    }
+  }
+  const doneBytes = () => Array.from(etags.keys()).reduce((n, pn) => n + partLen(pn - 1), 0);
+  onProgress(Math.round((doneBytes() / Math.max(1, file.size)) * 100));
+
+  for (let partNumber = 1; partNumber <= total; partNumber++) {
+    if (etags.has(partNumber)) continue;
+    const blob = file.slice((partNumber - 1) * partSize, Math.min(file.size, partNumber * partSize));
+    for (let attempt = 1; ; attempt++) {
+      const url = await directSign(collectionId, init.key, init.s3UploadId, partNumber);
+      const base = doneBytes();
+      const r = url ? await putPart(url, blob, (loaded) => onProgress(Math.min(99, Math.round(((base + loaded) / Math.max(1, file.size)) * 100)))) : { ok: false };
+      if (r.ok && r.etag) {
+        etags.set(partNumber, r.etag);
+        break;
+      }
+      if (r.ok && !r.etag) return "The storage service did not confirm that part of the file. Drop the file again to resume.";
+      if (attempt >= MAX_TRIES) return `Upload failed. Tried ${MAX_TRIES} times, drop the file again to resume where it stopped.`;
+      onRetry?.(attempt, "Network error");
+      await sleep(Math.min(15_000, 1000 * 2 ** (attempt - 1)) + Math.random() * 300);
+    }
+  }
+
+  try {
+    const res = await fetch(`/api/collections/${collectionId}/photos/direct`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "complete",
+        key: init.key,
+        s3UploadId: init.s3UploadId,
+        setId,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        parts: Array.from(etags.entries()).map(([partNumber, etag]) => ({ partNumber, etag })),
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (res.ok && data?.done) {
+      onProgress(100);
+      return null;
+    }
+    return data?.error || `Upload failed (${res.status})`;
+  } catch {
+    return "The upload did not finish, drop the file again to resume";
+  }
+}
+
+/**
+ * Upload one file with progress, resumable, resolving to an error string or
+ * null. Prefers the direct-to-storage flow; falls back to the chunked
+ * through-server flow when direct uploads are unavailable. `onRetry` reports
+ * a retry in progress (attempt, error).
  */
 export async function uploadOne(
+  collectionId: string,
+  setId: string,
+  file: File,
+  onProgress: (pct: number) => void,
+  onRetry?: (attempt: number, error: string) => void
+): Promise<string | null> {
+  const direct = await uploadOneDirect(collectionId, setId, file, onProgress, onRetry);
+  if (direct !== undefined) return direct;
+  return uploadOneChunked(collectionId, setId, file, onProgress, onRetry);
+}
+
+async function uploadOneChunked(
   collectionId: string,
   setId: string,
   file: File,

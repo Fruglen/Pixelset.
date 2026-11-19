@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mkdir, writeFile, rm } from "fs/promises";
-import path from "path";
 import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { applyWatermark, watermarkFromUser } from "@/lib/watermark";
+import { deleteStored, saveStoredBuffer } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -28,14 +27,11 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "That file is not a readable image" }, { status: 400 });
   }
-  const dir = path.join(process.cwd(), "public", "uploads", "watermarks");
-  await mkdir(dir, { recursive: true });
   const name = `${user.id}-${randomBytes(4).toString("hex")}.png`;
-  await writeFile(path.join(dir, name), png);
-  if (user.watermarkImageUrl.startsWith("/uploads/watermarks/")) {
-    await rm(path.join(process.cwd(), "public", user.watermarkImageUrl), { force: true });
+  const url = await saveStoredBuffer(`uploads/watermarks/${name}`, png, "image/png");
+  if (user.watermarkImageUrl.includes("/uploads/watermarks/")) {
+    await deleteStored(user.watermarkImageUrl);
   }
-  const url = `/uploads/watermarks/${name}`;
   await db.user.update({ where: { id: user.id }, data: { watermarkImageUrl: url, watermarkMode: "image" } });
   return NextResponse.json({ ok: true, url });
 }

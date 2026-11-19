@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "fs/promises";
-import path from "path";
 import { db } from "@/lib/db";
+import { isStoredUrl, readStoredBytes } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -25,10 +24,8 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
 
   let source: Buffer | null = null;
   if (cover) {
-    if (!cover.isExternal && cover.url.startsWith("/uploads/")) {
-      try {
-        source = await readFile(path.join(process.cwd(), "public", cover.url));
-      } catch {}
+    if (!cover.isExternal && isStoredUrl(cover.url)) {
+      source = await readStoredBytes(cover.url);
     } else {
       try {
         const res = await fetch(cover.url);
