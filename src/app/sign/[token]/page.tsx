@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
-import { brandFor, brandVars } from "@/lib/brand";
+import { brandFor } from "@/lib/brand";
+import { documentTheme, docVars } from "@/lib/doc-theme";
+import { DocThemeHead } from "@/components/doc-theme-head";
 import { BrandMark } from "@/components/brand-mark";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
@@ -26,11 +28,14 @@ export default async function SignPage({ params }: { params: { token: string } }
 
   // Phase 5B platform: the contract's own branding wins; otherwise the account brand applies.
   const brand = await brandFor(contract.userId);
-  const accent = /^#[0-9a-fA-F]{6}$/.test(contract.brandColor) ? contract.brandColor : brand.custom ? brand.color : "";
+  // Fix batch 2026-11-20: site palette + font theme for the document
+  const theme = await documentTheme(contract.userId);
+  const accent = /^#[0-9a-fA-F]{6}$/.test(contract.brandColor) ? contract.brandColor : theme.accent;
   const logoUrl = contract.brandLogoUrl || brand.logoUrl;
 
   return (
-    <div className="min-h-screen bg-[#faf9f7] text-ink py-10 px-4 branded" style={brandVars(brand)}>
+    <div className="min-h-screen bg-[#faf9f7] text-ink py-10 px-4 branded doc-themed" style={docVars(theme)} data-doc-palette={theme.paletteId} data-doc-font={theme.fontThemeId}>
+      <DocThemeHead theme={theme} />
       <div className="max-w-2xl mx-auto">
         {logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element

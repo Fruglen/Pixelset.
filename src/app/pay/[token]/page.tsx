@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
-import { brandFor, brandVars } from "@/lib/brand";
+import { brandFor } from "@/lib/brand";
+import { documentTheme, docVars } from "@/lib/doc-theme";
+import { DocThemeHead } from "@/components/doc-theme-head";
 import { BrandMark } from "@/components/brand-mark";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
@@ -39,8 +41,11 @@ export default async function PayPage({ params, searchParams }: { params: { toke
   const business = invoice.user.businessName || invoice.user.name;
 
   const brand = await brandFor(invoice.userId);
+  // Fix batch 2026-11-20: site palette + font theme for the document
+  const theme = await documentTheme(invoice.userId);
   return (
-    <div className="min-h-screen bg-[#faf9f7] text-ink py-10 px-4 branded print-area print-page-number" style={brandVars(brand)}>
+    <div className="min-h-screen bg-[#faf9f7] text-ink py-10 px-4 branded doc-themed print-area print-page-number" style={docVars(theme)} data-doc-palette={theme.paletteId} data-doc-font={theme.fontThemeId}>
+      <DocThemeHead theme={theme} />
       <div className="max-w-2xl mx-auto">
         {/* Night build (Extras): repeated studio header on printed invoices */}
         <div className="print-header hidden">
@@ -93,7 +98,7 @@ export default async function PayPage({ params, searchParams }: { params: { toke
           }`}
         >
           {modern ? (
-            <div className="bg-neutral-900 text-white px-8 py-8 flex items-end justify-between gap-6" style={brand.custom ? { background: brand.color } : undefined}>
+            <div className="doc-on-accent bg-neutral-900 text-white px-8 py-8 flex items-end justify-between gap-6" style={{ background: theme.accent }}>
               <div>
                 {brand.logoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element

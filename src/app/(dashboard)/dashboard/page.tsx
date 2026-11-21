@@ -44,7 +44,12 @@ export default async function DashboardHome() {
 
   return (
     <div>
-      <h1 className="font-display text-2xl mb-6">Welcome back, {user.name.split(" ")[0]}</h1>
+      <div className="flex flex-wrap items-baseline justify-between gap-3 mb-6">
+        <h1 className="font-display text-2xl">Welcome back, {user.name.split(" ")[0]}</h1>
+        <Link href="/help" className="text-sm underline text-neutral-600 hover:text-brand-700" data-testid="dashboard-help-link">
+          Help centre and guides
+        </Link>
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
         <div className="card p-5">

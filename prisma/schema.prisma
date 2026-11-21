@@ -283,6 +283,8 @@ model Comment {
   authorEmail  String     @default("")
   authorName   String     @default("")
   body         String
+  // Fix batch 2026-11-20: video timecode comments (seconds into the video), null for photo comments
+  timecodeSec  Float?
   createdAt    DateTime   @default(now())
 }
 
@@ -1591,4 +1593,24 @@ model CourseAccess {
   grantedAt DateTime @default(now())
   @@index([courseId])
   @@unique([courseId, email])
+}
+
+// Fix batch 2026-11-20: in dashboard support bubble. Messages land in the
+// platform owner's support inbox inside the app (/support-inbox); replies go
+// out by email from that inbox, no external chat service.
+model SupportMessage {
+  id         String    @id @default(cuid())
+  userId     String // the account that wrote in
+  fromName   String    @default("")
+  fromEmail  String
+  topic      String    @default("GENERAL") // GENERAL | GALLERY | WEBSITE | STUDIO | STORE | BILLING | BUG
+  body       String
+  page       String    @default("") // dashboard path the message was sent from
+  status     String    @default("OPEN") // OPEN | ANSWERED | CLOSED
+  reply      String    @default("")
+  replyNote  String    @default("") // honest delivery note for the reply email
+  repliedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([status, createdAt])
 }

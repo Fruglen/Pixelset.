@@ -67,9 +67,11 @@ export default function PreviewQualitySection({ initial }: { initial: { previewS
     <section className="card p-6 max-w-3xl mt-6">
       <h2 className="font-display text-lg mb-1">Preview quality</h2>
       <p className="text-sm text-neutral-500 mb-4">
-        Clients see generated preview images, not your full files. Choose how large and how lightly compressed they are. A
-        higher setting looks sharper, a lower one loads faster on slow phones. Downloads always use the sizes you offer, and
-        originals are never recompressed.
+        Clients see generated preview images, not your full files. Every upload gets renditions at 640, 1024 and 2048 px
+        (capped at the size below): grids load the small ones, the full screen view the large one. Choose how lightly they
+        are compressed. A higher setting looks sharper, a lower one loads faster on slow phones. Downloads always use the
+        sizes you offer, and originals are never recompressed. After a change, renditions are rebuilt the first time each
+        photo is viewed.
       </p>
       <div className="grid md:grid-cols-2 gap-6">
         <div className="space-y-4">

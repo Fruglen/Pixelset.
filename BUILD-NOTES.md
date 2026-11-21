@@ -279,3 +279,13 @@ Honest gaps (unchanged, by design or awaiting Glen):
 - Photo cloud storage remains excluded (excluded by Glen's order; Picflow linking is the bridge).
 - Real email delivery waits on Glen providing the Resend account; real lab submission waits on Glen naming the lab and providing that account.
 - Public deployment is still outstanding; the app currently runs on the VM only.
+
+## Fix batch 2026-11-20
+
+Built: email campaigns (Studio Manager, Email campaigns: builder, three recipient sources, per recipient send log, metered against `campaignAllowance()` at send time), in app help centre (`/help`, guides in `src/lib/help-guides.ts`), dashboard support bubble with the site owner's support inbox (`/support-inbox`), contract/invoice/quote theming from the website palette and font theme (`src/lib/doc-theme.ts`), device aware mobile save steps in the gallery download dialog, video timecode comments (`Comment.timecodeSec`), 640/1024/2048 preview renditions generated at upload (`warmRenditions()` in `src/lib/previews.ts`), and gallery interface languages (`src/lib/gallery-i18n.ts`, EN ES FR DE NL ZH-Hans PT SV). The product switcher (item 4) was already built in commit 31952b4 and is now covered by a smoke check.
+
+Environment:
+- `SUPPORT_INBOX_EMAILS` (comma separated account emails) chooses who sees `/support-inbox`. Unset, it defaults to `demo@pixelset.app`. Set it on Render to the owner's login email.
+- Schema additions are additive (`Comment.timecodeSec`, new `SupportMessage` table) and apply through the existing `prisma db push` in `npm start`.
+
+Smoke checks: `scripts/smoke-server.sh [item...]` runs `scripts/smoke-fix-batch.ts` against a built app on :3100 with `prisma/fixbatch.db`; `BROWSER=1 scripts/smoke-server.sh [item...]` runs `scripts/smoke-browser.mjs` (Playwright, pointed at a local install through `PLAYWRIGHT`). Items: campaigns, help, support, switcher, docs, videocomments, previews, languages, books (tsx) and mobile, videocomments, languages (browser).

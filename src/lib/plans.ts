@@ -253,7 +253,7 @@ export async function campaignSendsThisMonth(userId: string): Promise<number> {
   const start = new Date();
   start.setDate(1);
   start.setHours(0, 0, 0, 0);
-  return db.campaignSend.count({ where: { campaign: { userId }, createdAt: { gte: start } } });
+  return db.campaignSend.count({ where: { campaign: { userId }, createdAt: { gte: start }, status: { not: "FAILED" } } });
 }
 
 /** Price of one tier for one billing period, in cents, from the pricing data. */

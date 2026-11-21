@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { galleryT } from "@/lib/gallery-i18n";
 
 export default function GalleryGate({
   mode,
@@ -11,7 +12,9 @@ export default function GalleryGate({
   themeVars,
   optIn = false,
   hasGroups = false,
+  lang = "en",
 }: {
+  lang?: string; // Fix batch 2026-11-20: gallery interface language
   hasGroups?: boolean; // Phase 5B platform: access group codes are accepted here too
   mode: "password" | "email" | "prerelease";
   slug: string;
@@ -21,6 +24,7 @@ export default function GalleryGate({
   optIn?: boolean; // Phase 5B: show the marketing opt in checkbox
 }) {
   const router = useRouter();
+  const { t, tag } = galleryT(lang);
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -47,12 +51,13 @@ export default function GalleryGate({
       }
     } else {
       const data = await res.json().catch(() => ({}));
-      setError(data.error || "Something went wrong");
+      setError(data.error || t("somethingWrong"));
     }
   }
 
   return (
     <div
+      lang={tag}
       className="gallery-root flex flex-col items-center justify-center min-h-screen px-4"
       style={themeVars as unknown as React.CSSProperties}
     >
@@ -62,12 +67,12 @@ export default function GalleryGate({
 
         {mode === "password" && (
           <>
-            <p className="text-sm opacity-70 mb-6">This gallery is password protected.</p>
+            <p className="text-sm opacity-70 mb-6">{t("pwProtected")}</p>
             <form onSubmit={submit} className="space-y-3">
               <input
                 className="input text-center"
                 type="password"
-                placeholder={hasGroups ? "Gallery password or access code" : "Gallery password"}
+                placeholder={hasGroups ? t("pwOrCode") : t("pwPlaceholder")}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -75,7 +80,7 @@ export default function GalleryGate({
               />
               {error && <p className="text-sm text-red-500">{error}</p>}
               <button className="btn-primary w-full" disabled={busy}>
-                View Gallery
+                {t("viewGallery")}
               </button>
             </form>
           </>
@@ -83,13 +88,11 @@ export default function GalleryGate({
 
         {mode === "email" && (
           <>
-            <p className="text-sm opacity-70 mb-6">
-              Enter your email to view this gallery. {brand} will see your registration.
-            </p>
+            <p className="text-sm opacity-70 mb-6">{t("emailGate", { brand })}</p>
             <form onSubmit={submit} className="space-y-3">
               <input
                 className="input text-center"
-                placeholder="Your name (optional)"
+                placeholder={t("nameOptional")}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
@@ -105,12 +108,12 @@ export default function GalleryGate({
               {optIn && (
                 <label className="flex items-start gap-2 text-left text-xs opacity-80">
                   <input type="checkbox" className="mt-0.5" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} />
-                  <span>Keep me posted about print sales, mini sessions and offers from {brand}. Unsubscribe any time.</span>
+                  <span>{t("optIn", { brand })}</span>
                 </label>
               )}
               {error && <p className="text-sm text-red-500">{error}</p>}
               <button className="btn-primary w-full" disabled={busy}>
-                View Gallery
+                {t("viewGallery")}
               </button>
             </form>
           </>
@@ -118,15 +121,10 @@ export default function GalleryGate({
 
         {mode === "prerelease" &&
           (done ? (
-            <p className="text-sm opacity-80 mt-4">
-              You’re on the list, we’ll let you know the moment this gallery is published.
-            </p>
+            <p className="text-sm opacity-80 mt-4">{t("onTheList")}</p>
           ) : (
             <>
-              <p className="text-sm opacity-70 mb-6">
-                This gallery isn’t published yet. Register your email and we’ll notify you when it goes
-                live.
-              </p>
+              <p className="text-sm opacity-70 mb-6">{t("notPublished")}</p>
               <form onSubmit={submit} className="space-y-3">
                 <input
                   className="input text-center"
@@ -140,12 +138,12 @@ export default function GalleryGate({
                 {optIn && (
                   <label className="flex items-start gap-2 text-left text-xs opacity-80">
                     <input type="checkbox" className="mt-0.5" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} />
-                    <span>Keep me posted about print sales, mini sessions and offers from {brand}. Unsubscribe any time.</span>
+                    <span>{t("optIn", { brand })}</span>
                   </label>
                 )}
                 {error && <p className="text-sm text-red-500">{error}</p>}
                 <button className="btn-primary w-full" disabled={busy}>
-                  Notify Me
+                  {t("notifyMe")}
                 </button>
               </form>
             </>

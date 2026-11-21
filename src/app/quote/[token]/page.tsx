@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
-import { brandFor, brandVars } from "@/lib/brand";
+import { brandFor } from "@/lib/brand";
+import { documentTheme, docVars } from "@/lib/doc-theme";
+import { DocThemeHead } from "@/components/doc-theme-head";
 import { BrandMark } from "@/components/brand-mark";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
@@ -29,8 +31,11 @@ export default async function QuotePage({ params }: { params: { token: string } 
   const expired = !!quote.validUntil && quote.validUntil.getTime() < Date.now() && quote.status === "SENT";
 
   const brand = await brandFor(quote.userId);
+  // Fix batch 2026-11-20: site palette + font theme for the document
+  const theme = await documentTheme(quote.userId);
   return (
-    <div className="min-h-screen bg-[#faf9f7] text-ink py-10 px-4 branded" style={brandVars(brand)}>
+    <div className="min-h-screen bg-[#faf9f7] text-ink py-10 px-4 branded doc-themed" style={docVars(theme)} data-doc-palette={theme.paletteId} data-doc-font={theme.fontThemeId}>
+      <DocThemeHead theme={theme} />
       <div className="max-w-2xl mx-auto">
         <div className="mb-3"><BrandMark brand={brand} /></div>
         {brand.logoUrl ? <p className="text-center text-xs uppercase tracking-[0.25em] text-neutral-400 mb-2">{business}</p> : null}

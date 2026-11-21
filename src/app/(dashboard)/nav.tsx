@@ -11,6 +11,8 @@ import {
   DashboardIcon,
   EditorIcon,
   GalleryIcon,
+  HelpIcon,
+  InboxIcon,
   MenuIcon,
   MobileIcon,
   ReportsIcon,
@@ -72,6 +74,7 @@ export const PRODUCTS: ProductNav[] = [
       { href: "/studio/questionnaires", label: "Questionnaires" },
       { href: "/studio/forms", label: "Lead forms" },
       { href: "/studio/automations", label: "Automations" },
+      { href: "/studio/campaigns", label: "Email campaigns" },
       { href: "/studio/reports", label: "Payments" },
       { href: "/studio/inbox", label: "Inbox" },
       { href: "/studio/settings", label: "Settings" },
@@ -117,7 +120,7 @@ const NAV: { href: string; label: string; icon: IconType }[] = [
 const ACTIVE_LINK = "bg-brand-50 text-brand-800 font-medium border-r-2 border-brand-500";
 const IDLE_LINK = "text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900 transition-colors";
 
-export function Sidebar() {
+export function Sidebar({ supportInbox = false }: { supportInbox?: boolean }) {
   const pathname = usePathname();
   const product = productFor(pathname);
   // Phase 5B platform: on phones the sidebar is a drawer opened from the top bar.
@@ -181,6 +184,24 @@ export function Sidebar() {
       </nav>
       )}
       <div className="border-t border-neutral-100 py-3">
+        <Link
+          href="/help"
+          className={`flex items-center gap-3 px-6 py-2.5 text-sm ${pathname.startsWith("/help") ? ACTIVE_LINK : IDLE_LINK}`}
+          data-testid="nav-help"
+        >
+          <HelpIcon className={`h-5 w-5 ${pathname.startsWith("/help") ? "text-brand-600" : "text-neutral-400"}`} />
+          Help centre
+        </Link>
+        {supportInbox ? (
+          <Link
+            href="/support-inbox"
+            className={`flex items-center gap-3 px-6 py-2.5 text-sm ${pathname.startsWith("/support-inbox") ? ACTIVE_LINK : IDLE_LINK}`}
+            data-testid="nav-support-inbox"
+          >
+            <InboxIcon className={`h-5 w-5 ${pathname.startsWith("/support-inbox") ? "text-brand-600" : "text-neutral-400"}`} />
+            Support inbox
+          </Link>
+        ) : null}
         <Link
           href="/settings"
           className={`flex items-center gap-3 px-6 py-2.5 text-sm ${

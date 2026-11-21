@@ -365,3 +365,56 @@ input[type="range"] {
 @media (prefers-reduced-motion: reduce) {
   .gallery-cover-anim { animation: none; }
 }
+
+/* Fix batch 2026-11-20: client documents (contracts, invoices, quotes) take
+   the site palette and font theme. Variables come from docVars(); the page
+   wrapper carries .doc-themed next to .branded. */
+.doc-themed {
+  background-color: var(--doc-bg) !important;
+  color: var(--doc-text);
+  font-family: var(--doc-body);
+}
+.doc-themed .font-display {
+  font-family: var(--doc-display);
+}
+.doc-themed .text-ink {
+  color: inherit;
+}
+.doc-themed .bg-white {
+  background-color: var(--doc-paper) !important;
+  color: var(--doc-paper-text);
+}
+.doc-themed .text-neutral-400,
+.doc-themed .text-neutral-500 {
+  color: var(--doc-subtle);
+}
+.doc-themed .text-neutral-600,
+.doc-themed .text-neutral-700,
+.doc-themed .text-neutral-800 {
+  color: inherit;
+}
+.doc-themed .doc-on-accent .text-neutral-400,
+.doc-themed .doc-on-accent .text-neutral-500 {
+  color: rgb(255 255 255 / 0.75);
+}
+.doc-themed .border-neutral-200,
+.doc-themed .border-neutral-100 {
+  border-color: color-mix(in srgb, var(--doc-paper-text) 14%, transparent);
+}
+.doc-themed .btn-primary {
+  background-color: var(--doc-accent);
+}
+.doc-themed .doc-accent {
+  color: var(--doc-accent);
+}
+.doc-themed .input {
+  background-color: var(--doc-paper);
+  color: var(--doc-paper-text);
+}
+@media print {
+  .doc-themed,
+  .doc-themed .bg-white {
+    background-color: #fff !important;
+    color: #171717 !important;
+  }
+}

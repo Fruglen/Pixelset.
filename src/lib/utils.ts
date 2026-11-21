@@ -133,3 +133,12 @@ export function isMobileUserAgent(ua: string | null | undefined): boolean {
 export function isExpired(expiresAt: Date | null): boolean {
   return !!expiresAt && expiresAt.getTime() < Date.now();
 }
+
+/** Video timecode as m:ss (or h:mm:ss past an hour). */
+export function formatTimecode(sec: number): string {
+  const t = Math.max(0, Math.floor(sec));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}

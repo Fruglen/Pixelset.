@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeLang } from "@/lib/gallery-i18n";
 import { rm } from "fs/promises";
 import path from "path";
 import { db } from "@/lib/db";
@@ -45,6 +46,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   for (const key of ["coverStyle", "fontPairing", "palette", "gridStyle", "thumbSize", "gridSpacing", "coverVideoUrl", "coverImageUrl", "navStyle", "language"]) {
     if (typeof body[key] === "string") data[key] = body[key];
   }
+  // Fix batch 2026-11-20: only supported gallery languages are stored
+  if (typeof body.language === "string") data.language = normalizeLang(body.language);
   // Phase 5B gallery switches
   for (const key of ["coverAnimation", "seoIndexing", "showOnHomepage", "clientOnlyDownloads", "emailedDownloadAll", "desktopOnlyZip", "favoritesEnabled", "socialSharing", "campaignOptIn", "galleryAssist", "starred"]) {
     if (typeof body[key] === "boolean") data[key] = body[key];

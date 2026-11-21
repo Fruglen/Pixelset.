@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatTimecode } from "@/lib/utils";
+import { galleryDateLocale, galleryT } from "@/lib/gallery-i18n";
 import { useRouter } from "next/navigation";
 import { useGalleryStore, type StoreData } from "./store-client";
 import Slideshow from "./slideshow";
@@ -110,7 +112,7 @@ export type GalleryData = {
   viewerEmail: string;
   viewerName: string;
   sets: { id: string; name: string; clientExclusive: boolean; photos: GalleryPhoto[] }[];
-  comments: { id: string; photoId: string; authorName: string; body: string; createdAt: string }[];
+  comments: { id: string; photoId: string; authorName: string; body: string; timecodeSec?: number | null; createdAt: string }[];
   lists: {
     id: string;
     name: string;
@@ -120,13 +122,12 @@ export type GalleryData = {
   }[];
 };
 
-const SIZE_LABELS: Record<string, string> = {
-  original: "Original",
-  high3600: "High Resolution (3600px)",
-  web2048: "Web Size (2048px)",
-  web1024: "Web Size (1024px)",
-  web640: "Web Size (640px)",
-};
+function sizeLabel(t: ReturnType<typeof galleryT>["t"], s: string): string {
+  if (s === "original") return t("sizeOriginal");
+  if (s === "high3600") return t("sizeHigh", { px: 3600 });
+  const m = s.match(/^web(\d+)$/);
+  return m ? t("sizeWeb", { px: m[1] }) : s;
+}
 
 function videoEmbedUrl(url: string): string {
   const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{6,})/);
@@ -138,6 +139,8 @@ function videoEmbedUrl(url: string): string {
 
 export default function GalleryView({ data }: { data: GalleryData }) {
   const router = useRouter();
+  // Fix batch 2026-11-20: interface strings follow the gallery language (user content is never translated)
+  const { t } = useMemo(() => galleryT(data.language), [data.language]);
   const [lists, setLists] = useState(data.lists);
   const [comments, setComments] = useState(data.comments);
   const [activeSet, setActiveSet] = useState<string | "all">("all");
@@ -161,6 +164,10 @@ export default function GalleryView({ data }: { data: GalleryData }) {
   const [exPassword, setExPassword] = useState("");
   const [exError, setExError] = useState("");
   const [commentDraft, setCommentDraft] = useState("");
+  // Fix batch 2026-11-20: video timecode comments
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [videoTime, setVideoTime] = useState(0);
+  const [pinToTime, setPinToTime] = useState(true);
   const [noteDraftFor, setNoteDraftFor] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [slideshowOpen, setSlideshowOpen] = useState(false);
@@ -260,12 +267,12 @@ export default function GalleryView({ data }: { data: GalleryData }) {
         const res = await fetch(`/api/gallery/${data.slug}/favorites`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: "My Favorites", selectionLimit: null }),
+          body: JSON.stringify({ name: t("myFavorites"), selectionLimit: null }),
         });
         if (!res.ok) return;
         const created = await res.json();
         listId = created.id as string;
-        setLists((prev) => [...prev, { id: listId!, name: "My Favorites", selectionLimit: null, submittedAt: null, favorites: [] }]);
+        setLists((prev) => [...prev, { id: listId!, name: t("myFavorites"), selectionLimit: null, submittedAt: null, favorites: [] }]);
         setActiveListId(listId);
       }
       const res = await fetch(`/api/gallery/lists/${listId}/toggle`, {
@@ -318,21 +325,21 @@ export default function GalleryView({ data }: { data: GalleryData }) {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      return err.error || "Could not send the list";
+      return err.error || t("sendListFailed");
     }
     const at = new Date().toISOString();
     setLists((prev) => prev.map((l) => (l.id === listId ? { ...l, submittedAt: at } : l)));
     return null;
   }
 
-  async function postComment(photoId: string) {
+  async function postComment(photoId: string, timecodeSec: number | null = null) {
     const body = commentDraft.trim();
     if (!body) return;
     requireIdentity(async () => {
       const res = await fetch(`/api/gallery/${data.slug}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photoId, body }),
+        body: JSON.stringify({ photoId, body, ...(timecodeSec !== null ? { timecodeSec } : {}) }),
       });
       if (res.ok) {
         const created = await res.json();
@@ -343,6 +350,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
             photoId,
             authorName: created.authorName,
             body,
+            timecodeSec: created.timecodeSec ?? null,
             createdAt: new Date().toISOString(),
           },
         ]);
@@ -375,7 +383,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       // Phase 5B platform: phones get the emailed link instead of a ZIP they cannot open.
       if (err.desktopOnly || err.needsEmail) setDlNeedsEmail(true);
       if (Array.isArray(err.parts)) setDlParts(err.parts);
-      setDlError(err.error || "Download failed");
+      setDlError(err.error || t("downloadFailed"));
       return;
     }
     if (opts.email) {
@@ -419,7 +427,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       await navigator.share({ files: [prepared.file], title: prepared.file.name });
       closeDownload();
     } catch (e) {
-      if ((e as Error)?.name !== "AbortError") setDlError("Your browser could not open the share sheet. Use Open photo and save it from there.");
+      if ((e as Error)?.name !== "AbortError") setDlError(t("shareSheetFailed"));
     }
   }
 
@@ -436,7 +444,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       router.refresh();
     } else {
       const err = await res.json().catch(() => ({}));
-      setGroupError(err.error || "Could not use that code");
+      setGroupError(err.error || t("groupError"));
     }
   }
 
@@ -453,7 +461,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       router.refresh();
     } else {
       const err = await res.json().catch(() => ({}));
-      setExError(err.error || "Could not unlock");
+      setExError(err.error || t("unlockFailed"));
     }
   }
 
@@ -516,7 +524,18 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       : "";
   const embedUrl = data.coverVideoUrl ? videoEmbedUrl(data.coverVideoUrl) : "";
   const current = lightboxIdx !== null ? photos[lightboxIdx] : null;
-  const currentComments = current ? comments.filter((cm) => cm.photoId === current.id) : [];
+  const currentComments = current
+    ? comments
+        .filter((cm) => cm.photoId === current.id)
+        .sort((a, b) => (a.timecodeSec ?? -1) - (b.timecodeSec ?? -1) || a.createdAt.localeCompare(b.createdAt))
+    : [];
+  const currentIsVideo = current?.mediaType === "VIDEO";
+  function seekTo(sec: number) {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = sec;
+    v.play().catch(() => {});
+  }
   const currentFav = current ? favoritedIds.has(current.id) : false;
   const currentNote = current ? activeList?.favorites.find((f) => f.photoId === current.id)?.note ?? "" : "";
 
@@ -529,7 +548,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       )}
       {data.isQuickShare && (
         <div className="text-xs text-center py-1.5" style={{ background: "var(--g-muted)" }}>
-          Curated selection shared by {data.brand}
+          {t("curatedBy", { brand: data.brand })}
         </div>
       )}
 
@@ -559,7 +578,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
             onClick={() => setActiveSet("all")}
             className={`text-sm shrink-0 ${activeSet === "all" ? "underline underline-offset-4" : "opacity-60 hover:opacity-100"}`}
           >
-            All
+            {t("all")}
           </button>
           {visibleSets.map((s) => (
             <button
@@ -574,27 +593,27 @@ export default function GalleryView({ data }: { data: GalleryData }) {
           <span className="flex-1" />
           {data.slideshowEnabled && photos.length > 0 && (
             <button onClick={() => setSlideshowOpen(true)} className="text-sm shrink-0 opacity-70 hover:opacity-100">
-              ▶{iconsOnly ? "" : " Slideshow"}
+              ▶{iconsOnly ? "" : ` ${t("slideshow")}`}
             </button>
           )}
           {storeApi.enabled && (
             <button onClick={storeApi.openCart} className="text-sm shrink-0 opacity-70 hover:opacity-100">
-              ⬡{iconsOnly ? "" : " Cart"}{storeApi.cartCount > 0 ? ` (${storeApi.cartCount})` : ""}
+              ⬡{iconsOnly ? "" : ` ${t("cart")}`}{storeApi.cartCount > 0 ? ` (${storeApi.cartCount})` : ""}
             </button>
           )}
           {!data.isQuickShare && data.favoritesEnabled && (
             <button onClick={() => setShowFavorites(true)} className="text-sm shrink-0 opacity-70 hover:opacity-100">
-              ♥{iconsOnly ? "" : " Favorites"}{lists.length > 0 ? ` (${lists.reduce((n, l) => n + l.favorites.length, 0)})` : ""}
+              ♥{iconsOnly ? "" : ` ${t("favorites")}`}{lists.length > 0 ? ` (${lists.reduce((n, l) => n + l.favorites.length, 0)})` : ""}
             </button>
           )}
           {data.hasExclusiveSets && !data.isOwner && !data.isQuickShare && (
             <button onClick={() => setExclusiveOpen(true)} className="text-sm shrink-0 opacity-70 hover:opacity-100">
-              ✦{iconsOnly ? "" : " Client access"}
+              ✦{iconsOnly ? "" : ` ${t("clientAccess")}`}
             </button>
           )}
           {data.hasAccessGroups && !data.isOwner && !data.isQuickShare && (
             <button onClick={() => setGroupOpen(true)} className="text-sm shrink-0 opacity-70 hover:opacity-100">
-              {iconsOnly ? "⚿" : data.accessGroup ? `Viewing as ${data.accessGroup.name}` : "Access code"}
+              {iconsOnly ? "⚿" : data.accessGroup ? t("viewingAs", { name: data.accessGroup.name }) : t("accessCode")}
             </button>
           )}
           {data.downloadEnabled && data.allowZip && (
@@ -602,13 +621,13 @@ export default function GalleryView({ data }: { data: GalleryData }) {
               onClick={() => setDownload({ photoId: null, all: true })}
               className="text-sm shrink-0 opacity-70 hover:opacity-100"
             >
-              ⬇{iconsOnly ? "" : " Download All"}
+              ⬇{iconsOnly ? "" : ` ${t("downloadAll")}`}
             </button>
           )}
           {data.socialSharing && !data.isQuickShare && (
             <span className="relative shrink-0">
               <button onClick={() => setShareOpen((v) => !v)} className="text-sm opacity-70 hover:opacity-100">
-                ↗{iconsOnly ? "" : " Share"}
+                ↗{iconsOnly ? "" : ` ${t("share")}`}
               </button>
               {shareOpen && (
                 <span className="absolute right-0 top-full mt-1 block w-44 rounded border border-neutral-200 bg-white py-1 text-left shadow-lg z-40" style={{ color: "#262626" }}>
@@ -622,7 +641,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
                     Pinterest
                   </a>
                   <a className="block px-3 py-1.5 text-sm hover:bg-neutral-100" href={`mailto:?subject=${encodeURIComponent(data.name)}&body=${encodeURIComponent(typeof window !== "undefined" ? window.location.href : "")}`}>
-                    Email
+                    {t("email")}
                   </a>
                   <button
                     className="block w-full px-3 py-1.5 text-left text-sm hover:bg-neutral-100"
@@ -633,7 +652,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
                       } catch {}
                     }}
                   >
-                    {shareCopied ? "Link copied ✓" : "Copy link"}
+                    {shareCopied ? `${t("linkCopied")} ✓` : t("copyLink")}
                   </button>
                 </span>
               )}
@@ -648,33 +667,31 @@ export default function GalleryView({ data }: { data: GalleryData }) {
           <div className="mb-8">
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded border p-4" style={{ borderColor: "var(--g-muted)" }}>
-                <p className="gallery-display text-base mb-1">⤢ See photos full screen</p>
-                <p className="text-sm opacity-70">Tap any photo to view it large, then use the arrows to move through the gallery.</p>
+                <p className="gallery-display text-base mb-1">⤢ {t("assistFullTitle")}</p>
+                <p className="text-sm opacity-70">{t("assistFullBody")}</p>
               </div>
               {data.favoritesEnabled && (
                 <div className="rounded border p-4" style={{ borderColor: "var(--g-muted)" }}>
-                  <p className="gallery-display text-base mb-1">♥ Save your favorites</p>
-                  <p className="text-sm opacity-70">Tap the heart on any photo to build a favorites list and send it to {data.brand} when you are done.</p>
+                  <p className="gallery-display text-base mb-1">♥ {t("assistFavTitle")}</p>
+                  <p className="text-sm opacity-70">{t("assistFavBody", { brand: data.brand })}</p>
                 </div>
               )}
               {data.downloadEnabled && (
                 <div className="rounded border p-4" style={{ borderColor: "var(--g-muted)" }}>
-                  <p className="gallery-display text-base mb-1">⬇ Download your photos</p>
-                  <p className="text-sm opacity-70">
-                    {data.allowZip ? "Use Download All in the menu above to get the whole gallery as one ZIP file." : "Open a photo and use Download to save it to your device."}
-                  </p>
+                  <p className="gallery-display text-base mb-1">⬇ {t("assistDlTitle")}</p>
+                  <p className="text-sm opacity-70">{data.allowZip ? t("assistDlZip") : t("assistDlSingle")}</p>
                 </div>
               )}
             </div>
             <div className="text-right mt-2">
               <button onClick={dismissAssist} className="text-xs opacity-60 hover:opacity-100 underline underline-offset-2">
-                Got it, hide these tips
+                {t("assistHide")}
               </button>
             </div>
           </div>
         )}
         {photos.length === 0 ? (
-          <p className="text-center text-sm opacity-60 py-20">No photos here yet.</p>
+          <p className="text-center text-sm opacity-60 py-20">{t("noPhotos")}</p>
         ) : data.gridStyle === "vertical" ? (
           <div className={`${colClass} ${gapClass} [column-fill:_balance]`}>
             {photos.map((p, i) => (
@@ -718,7 +735,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
 
       <footer className="text-center text-xs opacity-50 pb-10">
         {data.brand}
-        {!data.hideBranding && " · Powered by Pixora"}
+        {!data.hideBranding && ` · ${t("poweredBy")}`}
       </footer>
 
       {/* ---------- LIGHTBOX ---------- */}
@@ -728,21 +745,25 @@ export default function GalleryView({ data }: { data: GalleryData }) {
             {current.mediaType === "VIDEO" ? (
               <video
                 key={current.id}
+                ref={videoRef}
                 src={current.url}
                 poster={current.posterUrl || undefined}
                 controls
                 autoPlay
                 playsInline
+                onTimeUpdate={(e) => setVideoTime(e.currentTarget.currentTime)}
+                onLoadedMetadata={() => setVideoTime(0)}
                 className="max-h-full max-w-full object-contain"
+                data-testid="lightbox-video"
               />
             ) : current.mediaType === "RAW" && !current.posterUrl ? (
               <div className="text-center text-white/80 space-y-2">
                 <span className="inline-block text-xs tracking-widest uppercase border border-white/50 px-3 py-1 rounded">
-                  RAW file
+                  {t("rawFile")}
                 </span>
                 <p className="text-sm break-all">{current.filename}</p>
                 {current.fileSize ? <p className="text-xs text-white/50">{formatBytes(current.fileSize)}</p> : null}
-                <p className="text-xs text-white/50">No preview available. The original file can be downloaded where downloads are enabled.</p>
+                <p className="text-xs text-white/50">{t("rawNoPreview")}</p>
               </div>
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
@@ -839,19 +860,19 @@ export default function GalleryView({ data }: { data: GalleryData }) {
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-4 text-white/80 text-sm">
               {!data.isQuickShare && data.favoritesEnabled && (
                 <button onClick={() => toggleFavorite(current.id)} className="hover:text-white">
-                  {currentFav ? "♥ Favorited" : "♡ Favorite"}
+                  {currentFav ? `♥ ${t("favorited")}` : `♡ ${t("favorite")}`}
                 </button>
               )}
               {storeApi.enabled && (
                 <button onClick={() => storeApi.buy({ ...current, url: displaySrc(current) || current.url })} className="hover:text-white">
-                  ⬡ Buy
+                  ⬡ {t("buy")}
                 </button>
               )}
               {data.downloadEnabled &&
                 data.allowSingle &&
                 (current.mediaType !== "VIDEO" || data.videoDownloadEnabled) && (
                   <button onClick={() => setDownload({ photoId: current.id, all: false })} className="hover:text-white">
-                    ⬇ Download
+                    ⬇ {t("download")}
                   </button>
                 )}
               <span className="text-white/40">
@@ -867,14 +888,14 @@ export default function GalleryView({ data }: { data: GalleryData }) {
                 <p className="text-sm font-medium truncate">{current.filename}</p>
                 {currentFav && activeList && (
                   <div className="mt-2">
-                    <p className="label">Note for “{activeList.name}”</p>
+                    <p className="label">{t("noteFor", { list: activeList.name })}</p>
                     {noteDraftFor === current.id ? (
                       <div className="flex gap-1">
                         <input
                           className="input !py-1 text-xs"
                           value={noteDraft}
                           onChange={(e) => setNoteDraft(e.target.value)}
-                          placeholder="e.g. retouch this one"
+                          placeholder={t("notePlaceholder")}
                           autoFocus
                         />
                         <button
@@ -884,7 +905,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
                             setNoteDraftFor(null);
                           }}
                         >
-                          Save
+                          {t("save")}
                         </button>
                       </div>
                     ) : (
@@ -895,33 +916,54 @@ export default function GalleryView({ data }: { data: GalleryData }) {
                           setNoteDraftFor(current.id);
                         }}
                       >
-                        {currentNote ? `“${currentNote}”, edit` : "+ Add a note"}
+                        {currentNote ? t("editNote", { note: currentNote }) : t("addNote")}
                       </button>
                     )}
                   </div>
                 )}
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                <p className="label">Comments ({currentComments.length})</p>
+                <p className="label">{t("comments", { n: currentComments.length })}</p>
                 {currentComments.map((cm) => (
-                  <div key={cm.id} className="text-sm">
-                    <p className="font-medium text-xs">{cm.authorName}</p>
+                  <div key={cm.id} className="text-sm" data-testid="lightbox-comment">
+                    <p className="font-medium text-xs">
+                      {typeof cm.timecodeSec === "number" ? (
+                        <button
+                          className="mr-1.5 font-mono text-[11px] px-1.5 py-0.5 rounded bg-neutral-900 text-white hover:bg-neutral-700"
+                          onClick={() => seekTo(cm.timecodeSec as number)}
+                          title={t("playFrom")}
+                          data-testid="comment-timecode"
+                        >
+                          {formatTimecode(cm.timecodeSec)}
+                        </button>
+                      ) : null}
+                      {cm.authorName}
+                    </p>
                     <p className="text-neutral-700">{cm.body}</p>
                   </div>
                 ))}
                 {currentComments.length === 0 && (
-                  <p className="text-xs text-neutral-400">No comments on this photo yet.</p>
+                  <p className="text-xs text-neutral-400">{t("noComments")}</p>
                 )}
               </div>
               <div className="p-4 border-t border-neutral-200">
                 <textarea
                   className="input h-16 text-sm"
-                  placeholder="Leave a comment…"
+                  placeholder={t("commentPlaceholder")}
                   value={commentDraft}
                   onChange={(e) => setCommentDraft(e.target.value)}
                 />
-                <button className="btn-primary w-full mt-2 !py-1.5" onClick={() => postComment(current.id)}>
-                  Post Comment
+                {currentIsVideo ? (
+                  <label className="flex items-center gap-2 text-xs text-neutral-600 mt-2">
+                    <input type="checkbox" className="accent-neutral-900" checked={pinToTime} onChange={(e) => setPinToTime(e.target.checked)} data-testid="pin-timecode" />
+                    <span>{t("pinTo", { time: formatTimecode(videoTime) })}</span>
+                  </label>
+                ) : null}
+                <button
+                  className="btn-primary w-full mt-2 !py-1.5"
+                  onClick={() => postComment(current.id, currentIsVideo && pinToTime ? Math.round(videoTime * 10) / 10 : null)}
+                >
+                  {t("postComment")}
                 </button>
               </div>
             </aside>
@@ -947,6 +989,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
           }}
           viewerEmail={viewerEmail}
           brand={data.brand}
+          lang={data.language}
         />
       )}
 
@@ -955,7 +998,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
         <div className="fixed inset-0 z-[60] bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white rounded-t-lg sm:rounded-lg p-6 w-full sm:max-w-sm text-ink max-h-[90vh] overflow-y-auto">
             <h3 className="font-display text-lg mb-3">
-              {download.all ? "Download All Photos" : "Download Photo"}
+              {download.all ? t("dlAllTitle") : t("dlOneTitle")}
             </h3>
             {prepared ? (
               // Phase 5B platform: the photo is ready on the phone, hand it to the system.
@@ -964,43 +1007,32 @@ export default function GalleryView({ data }: { data: GalleryData }) {
                 {prepared.file.type.startsWith("image/") && <img src={prepared.url} alt="" className="w-full max-h-60 object-contain rounded bg-neutral-50" />}
                 {prepared.share ? (
                   <button className="btn-primary w-full" onClick={savePrepared}>
-                    {device === "ios" ? "Save to Photos" : "Save to Gallery"}
+                    {device === "ios" ? t("saveToPhotos") : t("saveToGallery")}
                   </button>
                 ) : null}
                 <a className="btn-secondary w-full text-center block" href={prepared.url} target="_blank" rel="noreferrer" download={device === "ios" ? undefined : prepared.file.name}>
-                  Open photo
+                  {t("openPhoto")}
                 </a>
-                <p className="text-xs text-neutral-500">
-                  {device === "ios"
-                    ? prepared.share
-                      ? "Tap Save to Photos, then choose Save Image in the share sheet. Or tap Open photo, press and hold the photo and choose Save to Photos."
-                      : "Tap Open photo, press and hold the photo and choose Save to Photos (Add to Photos on older iOS)."
-                    : prepared.share
-                      ? "Tap Save to Gallery and pick where to keep it, or tap Open photo to save it to Downloads, where your Gallery or Photos app finds it."
-                      : "Tap Open photo. It saves to Downloads, where your Gallery or Photos app finds it."}
-                </p>
+                <MobileSaveSteps device={device} all={false} stage={prepared.share ? "ready-share" : "ready"} lang={data.language} />
                 {dlError && <p className="text-sm text-red-600">{dlError}</p>}
                 <div className="flex justify-end">
                   <button className="btn-secondary" onClick={closeDownload}>
-                    Done
+                    {t("done")}
                   </button>
                 </div>
               </div>
             ) : dlQueued ? (
               <div className="space-y-3">
-                <p className="text-sm text-neutral-700">
-                  Your ZIP is being prepared. A download link is on its way to {dlQueued}. Open it on a computer for the
-                  easiest download.
-                </p>
+                <p className="text-sm text-neutral-700">{t("zipPreparing", { email: dlQueued })}</p>
                 <div className="flex justify-end">
                   <button className="btn-secondary" onClick={closeDownload}>
-                    Close
+                    {t("close")}
                   </button>
                 </div>
               </div>
             ) : !data.downloadEnabled ? (
               <p className="text-sm text-neutral-600">
-                {data.accessGroup ? `Downloads are not included for ${data.accessGroup.name}.` : "Downloads are disabled for this gallery."}
+                {data.accessGroup ? t("downloadsNotIncluded", { group: data.accessGroup.name }) : t("downloadsDisabled")}
               </p>
             ) : (
               <div className="space-y-3">
@@ -1010,18 +1042,16 @@ export default function GalleryView({ data }: { data: GalleryData }) {
                     : null;
                   if (target && target.mediaType !== "IMAGE") {
                     return (
-                      <p className="text-xs text-neutral-500">
-                        {target.mediaType === "VIDEO" ? "Videos" : "RAW files"} download as the original file.
-                      </p>
+                      <p className="text-xs text-neutral-500">{target.mediaType === "VIDEO" ? t("videosOriginal") : t("rawsOriginal")}</p>
                     );
                   }
                   return (
                     <div>
-                      <label className="label">Size</label>
+                      <label className="label">{t("size")}</label>
                       <select className="input" value={dlSize} onChange={(e) => setDlSize(e.target.value)}>
                         {data.downloadSizes.map((s) => (
                           <option key={s} value={s}>
-                            {SIZE_LABELS[s] ?? s}
+                            {sizeLabel(t, s)}
                           </option>
                         ))}
                       </select>
@@ -1030,7 +1060,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
                 })()}
                 {data.pinEnabled && (
                   <div>
-                    <label className="label">4-digit download PIN</label>
+                    <label className="label">{t("pinLabel")}</label>
                     <input
                       className="input tracking-[0.5em] text-center"
                       maxLength={4}
@@ -1043,47 +1073,36 @@ export default function GalleryView({ data }: { data: GalleryData }) {
                 )}
                 {data.freeDownloadCap !== null && !data.isOwner && (
                   <p className="text-xs text-neutral-500">
-                    This gallery allows {data.freeDownloadCap} free photo downloads per client
-                    {download.all ? ", and every photo in a ZIP counts toward that limit." : "."}
+                    {download.all ? t("freeCapZip", { n: data.freeDownloadCap }) : t("freeCap", { n: data.freeDownloadCap })}
                   </p>
                 )}
-                {device !== "desktop" && (
-                  <p className="text-xs text-neutral-500 bg-neutral-50 rounded p-2">
-                    {download.all
-                      ? device === "ios"
-                        ? "On iPhone a ZIP opens in the Files app, not in Photos. For the whole gallery, get the link by email and open it on a computer, or save photos one by one from the photo view."
-                        : "On Android a ZIP lands in Downloads and has to be extracted with the Files app. For the whole gallery, getting the link by email and opening it on a computer is easiest."
-                      : device === "ios"
-                        ? "On iPhone the photo opens in the share sheet so you can save it straight to Photos."
-                        : "On Android the photo can go straight to your Gallery through the share sheet, or to Downloads."}
-                  </p>
-                )}
+                <MobileSaveSteps device={device} all={download.all} stage="before" lang={data.language} />
                 {dlParts && (
                   <div className="space-y-1">
-                    <p className="text-xs text-neutral-500">Large gallery, choose a part:</p>
+                    <p className="text-xs text-neutral-500">{t("chooseParts")}</p>
                     {dlParts.map((pt) => (
                       <button key={pt.part} className="btn-secondary w-full" disabled={dlBusy} onClick={() => runDownload({ part: pt.part })}>
-                        Part {pt.part} ({pt.files} files)
+                        {t("part", { n: pt.part, files: pt.files })}
                       </button>
                     ))}
                   </div>
                 )}
                 {download.all && (dlNeedsEmail || device !== "desktop" || data.emailedDownloadAll) && (
                   <div className="space-y-2">
-                    <label className="label">Email me the download link</label>
+                    <label className="label">{t("emailMeLink")}</label>
                     <input className="input" type="email" placeholder="you@example.com" value={dlEmail} onChange={(e) => setDlEmail(e.target.value)} />
                     <button className="btn-secondary w-full" disabled={dlBusy || !dlEmail.includes("@")} onClick={() => runDownload({ email: true })}>
-                      Send link
+                      {t("sendLink")}
                     </button>
                   </div>
                 )}
                 {dlError && <p className="text-sm text-red-600">{dlError}</p>}
                 <div className="flex justify-end gap-2">
                   <button className="btn-secondary" onClick={closeDownload}>
-                    Cancel
+                    {t("cancel")}
                   </button>
                   <button className="btn-primary" onClick={() => runDownload()} disabled={dlBusy}>
-                    {dlBusy ? "Preparing…" : "Download"}
+                    {dlBusy ? t("preparing") : t("download")}
                   </button>
                 </div>
               </div>
@@ -1096,18 +1115,15 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       {groupOpen && (
         <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
           <form onSubmit={unlockGroup} className="bg-white rounded-lg p-6 w-full max-w-sm text-ink space-y-3">
-            <h3 className="font-display text-lg">Access code</h3>
-            <p className="text-xs text-neutral-500">
-              Vendors, second shooters and family can enter the access code {data.brand} gave them to see their photos and
-              download options.
-            </p>
-            <input className="input font-mono" placeholder="Access code" value={groupCode} onChange={(e) => setGroupCode(e.target.value)} required />
+            <h3 className="font-display text-lg">{t("accessCode")}</h3>
+            <p className="text-xs text-neutral-500">{t("groupBody", { brand: data.brand })}</p>
+            <input className="input font-mono" placeholder={t("accessCode")} value={groupCode} onChange={(e) => setGroupCode(e.target.value)} required />
             {groupError && <p className="text-sm text-red-600">{groupError}</p>}
             <div className="flex justify-end gap-2">
               <button type="button" className="btn-secondary" onClick={() => setGroupOpen(false)}>
-                Cancel
+                {t("cancel")}
               </button>
-              <button className="btn-primary">Continue</button>
+              <button className="btn-primary">{t("continue")}</button>
             </div>
           </form>
         </div>
@@ -1117,11 +1133,9 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       {identify.open && (
         <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
           <form onSubmit={submitIdentify} className="bg-white rounded-lg p-6 w-full max-w-sm text-ink space-y-3">
-            <h3 className="font-display text-lg">Who’s choosing?</h3>
-            <p className="text-xs text-neutral-500">
-              Enter your email so {data.brand} knows whose favorites and comments these are.
-            </p>
-            <input className="input" placeholder="Your name" value={idName} onChange={(e) => setIdName(e.target.value)} />
+            <h3 className="font-display text-lg">{t("whoChoosing")}</h3>
+            <p className="text-xs text-neutral-500">{t("identifyBody", { brand: data.brand })}</p>
+            <input className="input" placeholder={t("yourName")} value={idName} onChange={(e) => setIdName(e.target.value)} />
             <input
               className="input"
               type="email"
@@ -1133,14 +1147,14 @@ export default function GalleryView({ data }: { data: GalleryData }) {
             {data.campaignOptIn && (
               <label className="flex items-start gap-2 text-xs text-neutral-600">
                 <input type="checkbox" className="mt-0.5 accent-neutral-900" checked={idOptIn} onChange={(e) => setIdOptIn(e.target.checked)} />
-                <span>Keep me posted about print sales, mini sessions and offers from {data.brand}. Unsubscribe any time.</span>
+                <span>{t("optIn", { brand: data.brand })}</span>
               </label>
             )}
             <div className="flex justify-end gap-2">
               <button type="button" className="btn-secondary" onClick={() => setIdentify({ open: false, then: null })}>
-                Cancel
+                {t("cancel")}
               </button>
-              <button className="btn-primary">Continue</button>
+              <button className="btn-primary">{t("continue")}</button>
             </div>
           </form>
         </div>
@@ -1165,11 +1179,8 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       {exclusiveOpen && (
         <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
           <form onSubmit={unlockExclusive} className="bg-white rounded-lg p-6 w-full max-w-sm text-ink space-y-3">
-            <h3 className="font-display text-lg">Client Exclusive Access</h3>
-            <p className="text-xs text-neutral-500">
-              Some sets in this gallery are reserved for a specific client. Enter the email and access
-              password {data.brand} gave you.
-            </p>
+            <h3 className="font-display text-lg">{t("exTitle")}</h3>
+            <p className="text-xs text-neutral-500">{t("exBody", { brand: data.brand })}</p>
             <input
               className="input"
               type="email"
@@ -1181,7 +1192,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
             <input
               className="input"
               type="password"
-              placeholder="Access password"
+              placeholder={t("accessPassword")}
               value={exPassword}
               onChange={(e) => setExPassword(e.target.value)}
               required
@@ -1189,9 +1200,9 @@ export default function GalleryView({ data }: { data: GalleryData }) {
             {exError && <p className="text-sm text-red-600">{exError}</p>}
             <div className="flex justify-end gap-2">
               <button type="button" className="btn-secondary" onClick={() => setExclusiveOpen(false)}>
-                Cancel
+                {t("cancel")}
               </button>
-              <button className="btn-primary">Unlock</button>
+              <button className="btn-primary">{t("unlock")}</button>
             </div>
           </form>
         </div>
@@ -1201,12 +1212,14 @@ export default function GalleryView({ data }: { data: GalleryData }) {
 }
 
 function Cover({ data, embedUrl }: { data: GalleryData; embedUrl: string }) {
+  const { t } = galleryT(data.language);
+  const dateLocale = galleryDateLocale(data.language);
   if (data.coverStyle === "none") {
     return (
       <div className="max-w-6xl mx-auto px-4 pt-12 pb-4">
         <h1 className="gallery-display text-4xl">{data.name}</h1>
         {data.eventDate && (
-          <p className="text-sm opacity-60 mt-1">{new Date(data.eventDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
+          <p className="text-sm opacity-60 mt-1">{new Date(data.eventDate).toLocaleDateString(dateLocale, { year: "numeric", month: "long", day: "numeric" })}</p>
         )}
       </div>
     );
@@ -1214,7 +1227,7 @@ function Cover({ data, embedUrl }: { data: GalleryData; embedUrl: string }) {
 
   const focal = { objectPosition: `${data.focalX * 100}% ${data.focalY * 100}%` };
   const dateStr = data.eventDate
-    ? new Date(data.eventDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+    ? new Date(data.eventDate).toLocaleDateString(dateLocale, { year: "numeric", month: "long", day: "numeric" })
     : "";
 
   const media = embedUrl ? (
@@ -1257,7 +1270,7 @@ function Cover({ data, embedUrl }: { data: GalleryData; embedUrl: string }) {
         }`}
         style={dark ? {} : { borderColor: "var(--g-text)" }}
       >
-        View Gallery
+        {t("viewGallery")}
       </a>
     </div>
   );
@@ -1351,6 +1364,7 @@ function GridItem({
   vertical: boolean;
   spacing: string;
 }) {
+  const { t } = galleryT(data.language);
   return (
     <div
       className={`relative group cursor-pointer overflow-hidden ${vertical ? "break-inside-avoid" : ""} ${
@@ -1370,7 +1384,7 @@ function GridItem({
             onClick={(e) => e.stopPropagation()}
           />
           <span className="absolute top-2 left-2 text-[10px] tracking-wide uppercase bg-black/60 text-white px-1.5 py-0.5 rounded pointer-events-none">
-            Video{photo.durationSec ? ` · ${formatDuration(photo.durationSec)}` : ""}
+            {t("video")}{photo.durationSec ? ` · ${formatDuration(photo.durationSec)}` : ""}
           </span>
         </div>
       ) : photo.mediaType === "RAW" && !photo.posterUrl ? (
@@ -1388,7 +1402,7 @@ function GridItem({
         <>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={displaySrc(photo, 800)}
+            src={displaySrc(photo, data.thumbSize === "large" ? 1024 : 640)}
             alt={photo.filename}
             loading="lazy"
             className={`w-full ${vertical ? "" : "aspect-[3/2] object-cover"} transition-transform duration-500 group-hover:scale-[1.02]`}
@@ -1418,7 +1432,7 @@ function GridItem({
               e.stopPropagation();
               onFavorite();
             }}
-            title="Favorite"
+            title={t("favorite")}
             className="hover:scale-110 transition-transform"
           >
             {favorited ? "♥" : "♡"}
@@ -1430,7 +1444,7 @@ function GridItem({
               e.stopPropagation();
               onBuy();
             }}
-            title="Buy this photo"
+            title={t("buyPhoto")}
             className="hover:scale-110 transition-transform"
           >
             ⬡
@@ -1444,7 +1458,7 @@ function GridItem({
                 e.stopPropagation();
                 onDownload();
               }}
-              title="Download"
+              title={t("download")}
               className="hover:scale-110 transition-transform"
             >
               ⬇
@@ -1469,6 +1483,7 @@ function FavoritesDrawer({
   onDownloadList,
   viewerEmail,
   brand,
+  lang,
 }: {
   lists: GalleryData["lists"];
   activeListId: string;
@@ -1482,7 +1497,9 @@ function FavoritesDrawer({
   onDownloadList: (listId: string) => void;
   viewerEmail: string;
   brand: string;
+  lang: string;
 }) {
+  const { t } = galleryT(lang);
   const [submitOpen, setSubmitOpen] = useState(false);
   const [submitMsg, setSubmitMsg] = useState("");
   const [submitErr, setSubmitErr] = useState("");
@@ -1500,17 +1517,14 @@ function FavoritesDrawer({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-display text-xl">Favorite Lists</h2>
+          <h2 className="font-display text-xl">{t("favLists")}</h2>
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-900">
             ✕
           </button>
         </div>
 
         {!viewerEmail && lists.length === 0 && (
-          <p className="text-xs text-neutral-500 mb-3">
-            Heart a photo or create a list, you’ll be asked for your email so the photographer knows
-            whose picks these are.
-          </p>
+          <p className="text-xs text-neutral-500 mb-3">{t("favIntro")}</p>
         )}
 
         <div className="flex flex-wrap gap-2 mb-4">
@@ -1532,7 +1546,7 @@ function FavoritesDrawer({
             onClick={() => setCreating((v) => !v)}
             className="text-xs px-3 py-1.5 rounded-full border border-dashed border-neutral-400 text-neutral-500"
           >
-            + New list
+            {t("newList")}
           </button>
         </div>
 
@@ -1550,7 +1564,7 @@ function FavoritesDrawer({
           >
             <input
               className="input"
-              placeholder="List name (e.g. Album picks)"
+              placeholder={t("listName")}
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               autoFocus
@@ -1559,11 +1573,11 @@ function FavoritesDrawer({
               className="input"
               type="number"
               min={1}
-              placeholder="Selection limit (optional)"
+              placeholder={t("selectionLimit")}
               value={newLimit}
               onChange={(e) => setNewLimit(e.target.value)}
             />
-            <button className="btn-primary w-full !py-1.5">Create List</button>
+            <button className="btn-primary w-full !py-1.5">{t("createList")}</button>
           </form>
         )}
 
@@ -1571,26 +1585,22 @@ function FavoritesDrawer({
           <>
             {active.submittedAt ? (
               <p className="text-xs bg-emerald-50 text-emerald-700 rounded p-2 mb-3">
-                Sent to {brand} on {new Date(active.submittedAt).toLocaleDateString("en-US", { month: "long", day: "numeric" })}. This
-                list is locked, ask {brand} to reopen it if you want to change your picks.
+                {t("sentOn", { brand, date: new Date(active.submittedAt).toLocaleDateString(galleryDateLocale(lang), { month: "long", day: "numeric" }) })}
               </p>
             ) : active.favorites.length > 0 ? (
               submitOpen ? (
                 <div className="card p-3 mb-3 space-y-2">
-                  <p className="text-xs text-neutral-600">
-                    Send “{active.name}” ({active.favorites.length} photos) to {brand}. They will be notified, and the list is
-                    locked after sending.
-                  </p>
+                  <p className="text-xs text-neutral-600">{t("sendIntro", { list: active.name, n: active.favorites.length, brand })}</p>
                   <textarea
                     className="input h-16 text-xs"
-                    placeholder="Message for your photographer (optional)"
+                    placeholder={t("messagePlaceholder")}
                     value={submitMsg}
                     onChange={(e) => setSubmitMsg(e.target.value)}
                   />
                   {submitErr && <p className="text-xs text-red-600">{submitErr}</p>}
                   <div className="flex gap-2 justify-end">
                     <button className="btn-secondary !py-1 text-xs" onClick={() => setSubmitOpen(false)}>
-                      Cancel
+                      {t("cancel")}
                     </button>
                     <button
                       className="btn-primary !py-1 text-xs"
@@ -1607,30 +1617,28 @@ function FavoritesDrawer({
                         }
                       }}
                     >
-                      {submitBusy ? "Sending…" : "Send to photographer"}
+                      {submitBusy ? t("sending") : t("sendToPhotographer")}
                     </button>
                   </div>
                 </div>
               ) : (
                 <button className="btn-primary w-full !py-1.5 text-xs mb-3" onClick={() => setSubmitOpen(true)}>
-                  I’m done, send this list to {brand}
+                  {t("imDone", { brand })}
                 </button>
               )
             ) : null}
             {active.favorites.length > 0 && (
               <button className="btn-secondary w-full !py-1.5 text-xs mb-3" onClick={() => onDownloadList(active.id)}>
-                ⬇ Download all {active.favorites.length} photos in this list
+                ⬇ {t("downloadList", { n: active.favorites.length })}
               </button>
             )}
             {active.selectionLimit && (
               <p className="text-xs text-neutral-500 mb-2">
-                {active.favorites.length} of {active.selectionLimit} selections used.
+                {t("selectionsUsed", { n: active.favorites.length, limit: active.selectionLimit })}
               </p>
             )}
             {active.favorites.length === 0 ? (
-              <p className="text-sm text-neutral-400">
-                No favorites in this list yet, hover a photo and tap the heart.
-              </p>
+              <p className="text-sm text-neutral-400">{t("noFavorites")}</p>
             ) : (
               <div className="space-y-3">
                 {active.favorites.map((f) => {
@@ -1640,7 +1648,7 @@ function FavoritesDrawer({
                     <div key={f.photoId} className="flex gap-3 items-start">
                       {displaySrc(p) ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={displaySrc(p)} alt="" className="h-16 w-16 object-cover rounded" />
+                        <img src={displaySrc(p, 640)} alt="" className="h-16 w-16 object-cover rounded" />
                       ) : (
                         <div className="h-16 w-16 rounded bg-neutral-100 flex items-center justify-center text-[9px] tracking-widest text-neutral-500">
                           {p.mediaType}
@@ -1651,12 +1659,12 @@ function FavoritesDrawer({
                         {active.submittedAt ? (
                           f.note ? <p className="text-xs text-neutral-500">“{f.note}”</p> : null
                         ) : (
-                          <NoteEditor note={f.note} onSave={(note) => onSaveNote(active.id, f.photoId, note)} />
+                          <NoteEditor note={f.note} onSave={(note) => onSaveNote(active.id, f.photoId, note)} lang={lang} />
                         )}
                       </div>
                       {!active.submittedAt && (
                         <button className="text-xs text-red-500 hover:underline shrink-0" onClick={() => onToggle(f.photoId)}>
-                          Remove
+                          {t("remove")}
                         </button>
                       )}
                     </div>
@@ -1666,20 +1674,21 @@ function FavoritesDrawer({
             )}
           </>
         ) : (
-          <p className="text-sm text-neutral-400">Create a list to start selecting photos.</p>
+          <p className="text-sm text-neutral-400">{t("createToStart")}</p>
         )}
       </aside>
     </div>
   );
 }
 
-function NoteEditor({ note, onSave }: { note: string; onSave: (note: string) => void }) {
+function NoteEditor({ note, onSave, lang }: { note: string; onSave: (note: string) => void; lang: string }) {
+  const { t } = galleryT(lang);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(note);
   if (!editing) {
     return (
       <button className="text-xs text-neutral-500 underline text-left" onClick={() => setEditing(true)}>
-        {note ? `“${note}”` : "+ Add note"}
+        {note ? `“${note}”` : t("addNoteShort")}
       </button>
     );
   }
@@ -1693,8 +1702,44 @@ function NoteEditor({ note, onSave }: { note: string; onSave: (note: string) => 
           setEditing(false);
         }}
       >
-        Save
+        {t("save")}
       </button>
     </div>
   );
+}
+
+// Fix batch 2026-11-20 (client complaint 5): device aware, step by step
+// save instructions in the download dialog. iPhone (Safari) and Android
+// (Chrome) get their own steps; the other device's steps stay one tap away,
+// and desktop visitors can open them too when sending the link to a phone.
+function MobileSaveSteps({ device, all, stage, lang }: { device: Device; all: boolean; stage: "before" | "ready" | "ready-share"; lang: string }) {
+  const { t, steps } = galleryT(lang);
+  const [shown, setShown] = useState<Device>(device);
+  useEffect(() => setShown(device), [device]);
+  const os: "ios" | "android" = shown === "android" ? "android" : "ios";
+  const key = (`${os}_${all ? "all" : stage === "ready-share" ? "share" : stage === "ready" ? "ready" : "before"}`) as
+    | "ios_all" | "ios_share" | "ios_ready" | "ios_before" | "android_all" | "android_share" | "android_ready" | "android_before";
+  const deviceName = os === "android" ? t("deviceAndroid") : t("deviceIos");
+  const body = (
+    <div className="text-xs text-neutral-600 bg-neutral-50 rounded p-3 space-y-2" data-testid="mobile-save-steps" data-device={os}>
+      <p className="font-medium text-neutral-800">{all ? t("saveTitleAll", { device: deviceName }) : t("saveTitleOne", { device: deviceName })}</p>
+      <ol className="list-decimal pl-4 space-y-1">
+        {steps(key).map((st, i) => (
+          <li key={i}>{st}</li>
+        ))}
+      </ol>
+      <button type="button" className="underline text-neutral-500" onClick={() => setShown(os === "android" ? "ios" : "android")}>
+        {os === "android" ? t("switchToIos") : t("switchToAndroid")}
+      </button>
+    </div>
+  );
+  if (device === "desktop") {
+    return (
+      <details className="text-xs text-neutral-500">
+        <summary className="cursor-pointer">{t("phoneStepsSummary")}</summary>
+        <div className="mt-2">{body}</div>
+      </details>
+    );
+  }
+  return body;
 }

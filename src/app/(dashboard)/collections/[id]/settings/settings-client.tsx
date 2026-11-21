@@ -1,5 +1,7 @@
 "use client";
 
+import { GALLERY_LANGUAGES } from "@/lib/gallery-i18n";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -699,17 +701,14 @@ export default function SettingsClient({
           </div>
           <div>
             <label className="label">Gallery language</label>
-            <select className="input !w-auto" value={c.language} onChange={(e) => set("language", e.target.value)}>
-              <option value="en">English</option>
-              <option value="es">Spanish</option>
-              <option value="fr">French</option>
-              <option value="de">German</option>
-              <option value="nl">Dutch</option>
-              <option value="zh">Chinese (Simplified)</option>
-              <option value="pt">Portuguese</option>
-              <option value="sv">Swedish</option>
+            <select className="input !w-auto" value={c.language === "zh" ? "zh-Hans" : c.language} onChange={(e) => set("language", e.target.value)} data-testid="gallery-language">
+              {GALLERY_LANGUAGES.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.label}
+                </option>
+              ))}
             </select>
-            <p className="text-xs text-neutral-500 mt-1">Recorded on the gallery and sent as its language tag. Translated interface text is not built yet, so the gallery still reads in English.</p>
+            <p className="text-xs text-neutral-500 mt-1">Translates the gallery&apos;s buttons, menus, dialogs, download steps and password or registration pages for your client. Your own text (gallery and set names, comments, banners) is shown as you wrote it.</p>
           </div>
         </div>
       </Section>

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { galleryT } from "@/lib/gallery-i18n";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { readGalleryAccess } from "@/lib/gallery-auth";
@@ -65,6 +66,8 @@ export default async function GalleryPage({
   };
 
   const brand = collection.user.businessName || collection.user.name;
+  // Fix batch 2026-11-20: gallery interface language (never the photographer's content)
+  const { t, tag: langTag, lang } = galleryT(collection.language);
 
   // --- Quick Share mode: curated selection, bypasses all gates ---
   const qsToken = searchParams.qs;
@@ -83,18 +86,16 @@ export default async function GalleryPage({
     if (!isOwner) {
       if (collection.status === "DRAFT") {
         return (
-          <GateShell themeVars={themeVars} brand={brand}>
-            <p className="text-sm opacity-70">This gallery is not available yet.</p>
+          <GateShell themeVars={themeVars} brand={brand} lang={langTag}>
+            <p className="text-sm opacity-70">{t("notAvailable")}</p>
           </GateShell>
         );
       }
       if (expired) {
         return (
-          <GateShell themeVars={themeVars} brand={brand}>
+          <GateShell themeVars={themeVars} brand={brand} lang={langTag}>
             <h1 className="gallery-display text-3xl mb-3">{collection.name}</h1>
-            <p className="text-sm opacity-70">
-              This gallery has expired and is no longer available. Please contact {brand} for access.
-            </p>
+            <p className="text-sm opacity-70">{t("expired", { brand })}</p>
           </GateShell>
         );
       }
@@ -107,6 +108,7 @@ export default async function GalleryPage({
             collectionName={collection.name}
             brand={brand}
             themeVars={themeVars}
+          lang={lang}
           />
         );
       }
@@ -123,6 +125,7 @@ export default async function GalleryPage({
           collectionName={collection.name}
           brand={brand}
           themeVars={themeVars}
+          lang={lang}
         />
       );
     }
@@ -135,6 +138,7 @@ export default async function GalleryPage({
           collectionName={collection.name}
           brand={brand}
           themeVars={themeVars}
+          lang={lang}
         />
       );
     }
@@ -336,7 +340,7 @@ export default async function GalleryPage({
     galleryAssist: collection.galleryAssist,
     emailedDownloadAll: collection.emailedDownloadAll,
     coverAnimation: collection.coverAnimation,
-    language: collection.language,
+    language: lang,
     isQuickShare: !!quickPhotoIds,
     quickShareToken: quickPhotoIds ? qsToken ?? "" : "",
     store,
@@ -351,6 +355,7 @@ export default async function GalleryPage({
       photoId: cm.photoId,
       authorName: cm.authorName || cm.authorEmail || "Guest",
       body: cm.body,
+      timecodeSec: cm.timecodeSec,
       createdAt: cm.createdAt.toISOString(),
     })),
     lists: lists.map((l) => ({
@@ -363,7 +368,7 @@ export default async function GalleryPage({
   };
 
   return (
-    <div className="gallery-root" style={themeVars as unknown as React.CSSProperties}>
+    <div className="gallery-root" lang={langTag} style={themeVars as unknown as React.CSSProperties}>
       <GalleryView data={data} />
     </div>
   );
@@ -373,13 +378,16 @@ function GateShell({
   children,
   themeVars,
   brand,
+  lang,
 }: {
   children: React.ReactNode;
   themeVars: Record<string, string>;
   brand: string;
+  lang: string;
 }) {
   return (
     <div
+      lang={lang}
       className="gallery-root flex flex-col items-center justify-center min-h-screen px-4"
       style={themeVars as unknown as React.CSSProperties}
     >

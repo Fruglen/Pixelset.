@@ -2,6 +2,7 @@ import { mkdir, rename, stat, rm, writeFile } from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
 import { db } from "./db";
+import { warmRenditions } from "./previews";
 import {
   makeRawPreview,
   makeVideoPoster,
@@ -190,6 +191,8 @@ export async function ingestFile(opts: {
       order: (maxOrder._max.order ?? -1) + 1,
     },
   });
+  // Fix batch 2026-11-20: generate the 640/1024/2048 preview renditions now, in the background.
+  if (mediaType === "IMAGE" || (mediaType === "RAW" && posterUrl)) void warmRenditions(photo.id);
   return { ok: true, photoId: photo.id };
 }
 
@@ -336,5 +339,7 @@ export async function finalizeDirectUpload(opts: {
       order: (maxOrder._max.order ?? -1) + 1,
     },
   });
+  // Fix batch 2026-11-20: generate the 640/1024/2048 preview renditions now, in the background.
+  if (mediaType === "IMAGE" || (mediaType === "RAW" && posterUrl)) void warmRenditions(photo.id);
   return { ok: true, photoId: photo.id };
 }

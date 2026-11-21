@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { photoWatermarked } from "@/lib/watermark";
-import { clampQuality, previewRendition, renditionWidth } from "@/lib/previews";
+import { clampQuality, previewRendition, renditionCached, renditionWidth } from "@/lib/previews";
 
 export const runtime = "nodejs";
 
@@ -24,6 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: { photoId: str
   const user = photo.collection.user;
   const width = renditionWidth(asked, user.previewSize);
   const quality = clampQuality(user.previewQuality);
+  const cached = await renditionCached(photo.id, width, quality);
   const out = await previewRendition({ id: photo.id, url: src, isExternal: photo.isExternal && photo.mediaType === "IMAGE" }, width, quality);
   if (!out) return NextResponse.json({ error: "Could not render the preview" }, { status: 502 });
   return new NextResponse(new Uint8Array(out), {
@@ -32,6 +33,7 @@ export async function GET(req: NextRequest, { params }: { params: { photoId: str
       "Cache-Control": "public, max-age=86400",
       "X-Preview-Width": String(width),
       "X-Preview-Quality": String(quality),
+      "X-Preview-Cache": cached ? "hit" : "miss",
     },
   });
 }
