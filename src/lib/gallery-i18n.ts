@@ -5,6 +5,8 @@
 // (gallery name, set names, file names, comments, notes, banners) is never
 // translated. Strings use {placeholders}; steps are arrays.
 
+import { STORE_DICTS, STORE_EN, matchServerMessage } from "./gallery-i18n-store";
+
 export const GALLERY_LANGUAGES = [
   { id: "en", label: "English", tag: "en" },
   { id: "es", label: "Spanish", tag: "es" },
@@ -24,7 +26,7 @@ export function normalizeLang(v: string | null | undefined): GalleryLang {
   return (GALLERY_LANGUAGES.find((l) => l.id === v)?.id ?? "en") as GalleryLang;
 }
 
-const en = {
+const baseEn = {
   all: "All",
   slideshow: "Slideshow",
   cart: "Cart",
@@ -190,10 +192,12 @@ const en = {
   ],
 };
 
+type BaseDict = { [K in keyof typeof baseEn]: (typeof baseEn)[K] extends string[] ? string[] : string };
+const en = { ...baseEn, ...STORE_EN };
 export type GalleryStrings = typeof en;
 type Dict = { [K in keyof GalleryStrings]: GalleryStrings[K] extends string[] ? string[] : string };
 
-const es: Dict = {
+const es: BaseDict = {
   all: "Todo",
   slideshow: "Presentación",
   cart: "Carrito",
@@ -359,7 +363,7 @@ const es: Dict = {
   ],
 };
 
-const fr: Dict = {
+const fr: BaseDict = {
   all: "Tout",
   slideshow: "Diaporama",
   cart: "Panier",
@@ -525,7 +529,7 @@ const fr: Dict = {
   ],
 };
 
-const de: Dict = {
+const de: BaseDict = {
   all: "Alle",
   slideshow: "Diashow",
   cart: "Warenkorb",
@@ -691,7 +695,7 @@ const de: Dict = {
   ],
 };
 
-const nl: Dict = {
+const nl: BaseDict = {
   all: "Alles",
   slideshow: "Diavoorstelling",
   cart: "Winkelwagen",
@@ -857,7 +861,7 @@ const nl: Dict = {
   ],
 };
 
-const zhHans: Dict = {
+const zhHans: BaseDict = {
   all: "全部",
   slideshow: "幻灯片",
   cart: "购物车",
@@ -1023,7 +1027,7 @@ const zhHans: Dict = {
   ],
 };
 
-const pt: Dict = {
+const pt: BaseDict = {
   all: "Todas",
   slideshow: "Apresentação",
   cart: "Carrinho",
@@ -1189,7 +1193,7 @@ const pt: Dict = {
   ],
 };
 
-const sv: Dict = {
+const sv: BaseDict = {
   all: "Alla",
   slideshow: "Bildspel",
   cart: "Varukorg",
@@ -1355,7 +1359,16 @@ const sv: Dict = {
   ],
 };
 
-const DICTS: Record<GalleryLang, Dict> = { en, es, fr, de, nl, "zh-Hans": zhHans, pt, sv };
+const DICTS: Record<GalleryLang, Dict> = {
+  en,
+  es: { ...es, ...STORE_DICTS.es },
+  fr: { ...fr, ...STORE_DICTS.fr },
+  de: { ...de, ...STORE_DICTS.de },
+  nl: { ...nl, ...STORE_DICTS.nl },
+  "zh-Hans": { ...zhHans, ...STORE_DICTS["zh-Hans"] },
+  pt: { ...pt, ...STORE_DICTS.pt },
+  sv: { ...sv, ...STORE_DICTS.sv },
+};
 
 export type StringKey = { [K in keyof Dict]: Dict[K] extends string ? K : never }[keyof Dict];
 export type StepsKey = { [K in keyof Dict]: Dict[K] extends string[] ? K : never }[keyof Dict];
@@ -1372,7 +1385,13 @@ export function galleryT(lang: string) {
     return raw.replace(/\{(\w+)\}/g, (_, k) => (vars[k] !== undefined ? String(vars[k]) : `{${k}}`));
   };
   const steps = (key: StepsKey): string[] => (d[key] as string[]) ?? (en[key] as string[]);
-  return { t, steps, lang: normalizeLang(lang), tag: GALLERY_LANGUAGES.find((l) => l.id === normalizeLang(lang))!.tag };
+  /** Translate a message returned by the server (wrong PIN, coupon errors, tax labels...). Unknown text is shown as sent. */
+  const te = (msg: string | null | undefined, fallback = ""): string => {
+    if (!msg) return fallback;
+    const hit = matchServerMessage(msg);
+    return hit ? t(hit.key, hit.vars) : msg;
+  };
+  return { t, steps, te, lang: normalizeLang(lang), tag: GALLERY_LANGUAGES.find((l) => l.id === normalizeLang(lang))!.tag };
 }
 
 /** Locale used for dates shown in the gallery interface. */

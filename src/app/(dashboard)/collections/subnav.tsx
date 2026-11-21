@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useDashT } from "@/components/dash-lang";
 
 // Phase 5B platform: Client Gallery dashboard pages.
 const TABS = [
@@ -13,13 +14,14 @@ const TABS = [
 
 export function GallerySubnav() {
   const pathname = usePathname();
+  const { nav } = useDashT();
   return (
     <div className="border-b border-neutral-200 flex gap-5 overflow-x-auto mb-6">
       {TABS.map((t) => {
         const active = t.exact ? pathname === t.href : pathname.startsWith(t.href);
         return (
           <Link key={t.href} href={t.href} className={`pb-2.5 text-sm whitespace-nowrap ${active ? "tab-active" : "tab-inactive"}`}>
-            {t.label}
+            {nav(t.label)}
           </Link>
         );
       })}

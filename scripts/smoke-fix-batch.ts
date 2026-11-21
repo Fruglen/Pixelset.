@@ -4,6 +4,8 @@
 import { PrismaClient } from "@prisma/client";
 import { HELP_GUIDES, searchGuides } from "../src/lib/help-guides";
 import { GALLERY_LANGUAGES, galleryDict, galleryT, normalizeLang } from "../src/lib/gallery-i18n";
+import { STORE_EN, matchServerMessage } from "../src/lib/gallery-i18n-store";
+import { DASHBOARD_LANGUAGES, dashboardDict, navLabels, resolveDashLang } from "../src/lib/dashboard-i18n";
 
 const db = new PrismaClient();
 const BASE = process.env.BASE || "http://localhost:3100";
@@ -327,6 +329,278 @@ async function languages() {
   await db.collection.update({ where: { id: coll.id }, data: { language: original === "zh" ? "zh-Hans" : original } });
 }
 
+
+// ---------------------------------------------------------------- build pack 2026-11-20 item 1: store + server messages
+async function storei18n() {
+  const { readFileSync, readdirSync, statSync } = await import("fs");
+  const ids = GALLERY_LANGUAGES.map((l) => l.id);
+  // every store key exists in every language, no em dashes
+  let complete = true;
+  for (const l of ids) {
+    const d = galleryDict(l) as Record<string, unknown>;
+    for (const k of Object.keys(STORE_EN)) if (typeof d[k] !== "string" || !d[k] || (d[k] as string).includes("—")) complete = false;
+  }
+  check("store and server-message strings present in all 8 languages", complete, `${Object.keys(STORE_EN).length} keys`);
+  // every literal error the gallery-facing APIs can return is recognised (static scan, catches drift)
+  const files: string[] = [];
+  const walk = (d: string) => {
+    for (const f of readdirSync(d)) {
+      const p = `${d}/${f}`;
+      if (statSync(p).isDirectory()) walk(p);
+      else if (p.endsWith(".ts")) files.push(p);
+    }
+  };
+  walk("src/app/api/gallery");
+  files.push("src/app/api/download/route.ts", "src/lib/store.ts");
+  const literals = new Set<string>();
+  for (const f of files) {
+    const src = readFileSync(f, "utf8");
+    const re = /(?:error:\s*|err\(\s*)"([^"]+)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(src))) literals.add(m[1]);
+  }
+  // "Unknown mode" is a developer error (the gallery never sends an unknown unlock mode); it is not shown to visitors
+  const misses = Array.from(literals).filter((m) => m !== "Unknown mode" && !matchServerMessage(m));
+  check("every literal gallery API error is recognised", literals.size > 40 && misses.length === 0, `${literals.size} messages${misses.length ? `, missing: ${misses.join(" | ")}` : ""}`);
+  const samples = [
+    "Downloads are not included for Vendors",
+    "“Album picks” allows at most 30 selections.",
+    "“Album picks” was already sent to the photographer. Ask them to reopen it to make changes.",
+    "Free download limit reached (10 photos).",
+    "This gallery allows 10 free downloads per client. You have 3 left, and this ZIP holds 1 new photo. Download individual photos instead.",
+    "This download is split into 3 ZIP files. Choose a part.",
+    "Coupon requires a minimum spend of $50.00",
+    "Tax (8.25%)",
+    "Texas sales tax (6.25%)",
+    "No tax, outside your tax regions",
+  ];
+  check("templated server messages recognised", samples.every((m) => !!matchServerMessage(m)), samples.filter((m) => !matchServerMessage(m)).join(" | "));
+  const es = galleryT("es");
+  check("names inside messages are not translated", es.te("Downloads are not included for Vendors") === "Las descargas no están incluidas para Vendors" && es.te("“Album picks” allows at most 30 selections.").includes("Album picks"));
+  check("unknown server text is shown as sent", es.te("Some brand new message") === "Some brand new message");
+  // live: real server responses, translated the way the gallery shows them
+  const user = await demoUser();
+  const emma = await db.collection.findFirstOrThrow({ where: { userId: user.id, slug: "emma-james-wedding" } });
+  const ownerCookie = cookie;
+  cookie = "";
+  const wrongPw = await (await req(`/api/gallery/${emma.slug}/unlock`, { method: "POST", json: { mode: "password", password: "definitely-wrong" } })).json();
+  check("wrong password message translated (es)", es.te(wrongPw.error) === "Contraseña incorrecta", `${wrongPw.error} -> ${es.te(wrongPw.error)}`);
+  check("wrong password message translated (zh-Hans)", galleryT("zh-Hans").te(wrongPw.error) === "密码错误");
+  const photo = await db.photo.findFirstOrThrow({ where: { collectionId: emma.id } });
+  // unlock as a visitor, then ask for a download with the wrong PIN: the real "wrong PIN" response
+  const ul = await req(`/api/gallery/${emma.slug}/unlock`, { method: "POST", json: { mode: "password", password: emma.password } });
+  cookie = (ul.headers.get("set-cookie") || "").split(/,(?=\s*[\w-]+=)/).map((c) => c.split(";")[0].trim()).join("; ");
+  const pinRes = await req(`/api/download?slug=${emma.slug}&photo=${photo.id}&size=original&pin=0000`);
+  const pinJ = await pinRes.json().catch(() => ({}));
+  const fr = galleryT("fr");
+  check("real wrong PIN response translated (fr)", pinJ.error === "Incorrect download PIN" && fr.te(pinJ.error) === "PIN de téléchargement incorrect", `${pinRes.status} ${pinJ.error} -> ${fr.te(pinJ.error)}`);
+  cookie = "";
+  check("wrong PIN message translated in all 8 languages", ids.every((l) => l === "en" || galleryT(l).te("Incorrect download PIN") !== "Incorrect download PIN") && galleryT("de").te("Incorrect download PIN") === "Falsche Download-PIN");
+  const sheet = await db.priceSheet.findUniqueOrThrow({ where: { id: emma.priceSheetId! }, include: { products: { include: { variants: true } } } });
+  const prod = sheet.products.find((p) => p.variants.length > 0)!;
+  cookie = ownerCookie; // owner bypasses the gallery password for the checkout preview
+  const co = await req(`/api/gallery/${emma.slug}/checkout`, { method: "POST", json: { lines: [{ productId: prod.id, variantId: prod.variants[0].id, photoId: photo.id, qty: 1 }], couponCode: "NOPE-SMOKE", confirm: false } });
+  const cj = await co.json().catch(() => ({}));
+  const pt = galleryT("pt");
+  check("coupon error from checkout translated (pt)", co.ok && pt.te(cj.totals?.couponError) === "Cupom desconhecido", `${co.status} ${cj.totals?.couponError ?? cj.error}`);
+  // English stays exactly as the server wrote it
+  check("English shows the server text unchanged", galleryT("en").te(wrongPw.error) === "Incorrect password" && galleryT("en").t("yourCart") === "Your Cart");
+}
+
+// ---------------------------------------------------------------- build pack 2026-11-20 item 2: CSV import assigns clients
+async function csvclients() {
+  const user = await demoUser();
+  const stamp = Date.now();
+  const existing = await db.contact.create({ data: { userId: user.id, name: "Smoke Existing Client", email: `smoke-existing-${stamp}@example.com`, state: "LEAD", source: "MANUAL" } });
+  const newEmail = `smoke-new-${stamp}@example.com`;
+  const csv = [
+    "name,eventDate,clientEmail,clientName",
+    `Smoke Client A ${stamp},2026-05-01,${newEmail},Nina New`,
+    `Smoke Client B ${stamp},,${existing.email.toUpperCase()},Ignored Name`,
+    `Smoke Client C ${stamp},,,`,
+    `Smoke Client D ${stamp},,not-an-email,`,
+    `Smoke Client E ${stamp},,${newEmail},`,
+  ].join("\n");
+  const res = await req("/api/collections/import", { method: "POST", json: { csv } });
+  const j = await res.json();
+  check("CSV with a client email column imports", res.ok && j.createdCount === 4 && j.errorCount === 1, JSON.stringify({ c: j.createdCount, e: j.errors }).slice(0, 200));
+  check("invalid client email is reported per row, not imported", j.errors?.[0]?.row === 5 && /not a valid email/.test(j.errors?.[0]?.message ?? ""));
+  const made = await db.collection.findMany({ where: { userId: user.id, name: { startsWith: "Smoke Client " }, createdAt: { gte: new Date(stamp - 1000) } }, include: { contact: true } });
+  const by = (l: string) => made.find((m) => m.name === `Smoke Client ${l} ${stamp}`);
+  const created = await db.contact.findMany({ where: { userId: user.id, email: newEmail } });
+  check("new client contact created once (two rows, same email)", created.length === 1 && created[0].name === "Nina New" && created[0].state === "CLIENT" && created[0].source === "IMPORT", `${created.length} contacts`);
+  check("rows with the new email are assigned to that contact", by("A")?.contactId === created[0]?.id && by("E")?.contactId === created[0]?.id);
+  const ex2 = await db.contact.findUniqueOrThrow({ where: { id: existing.id } });
+  check("existing contact matched by email, case-insensitive, and marked CLIENT", by("B")?.contactId === existing.id && ex2.state === "CLIENT" && ex2.name === "Smoke Existing Client");
+  check("no duplicate contact for the existing email", (await db.contact.count({ where: { userId: user.id, email: { in: [existing.email, existing.email.toUpperCase()] } } })) === 1);
+  check("row without a client email stays unassigned", !!by("C") && by("C")!.contactId === null);
+  check("import response names the assignments", j.assignedCount === 3 && j.contactsCreated === 1);
+  const page = await (await req(`/collections/${by("A")!.id}`)).text();
+  check("collection header shows its client", page.includes('data-testid="collection-client"') && page.includes("Nina New"));
+  const cpage = await (await req(`/studio/contacts/${created[0].id}`)).text();
+  check("client contact page lists the assigned galleries", cpage.includes(`Smoke Client A ${stamp}`) && cpage.includes(`Smoke Client E ${stamp}`));
+  // the old CSV shape (no client columns) still works and assigns nobody
+  const old = await req("/api/collections/import", { method: "POST", json: { csv: `name,status\nSmoke Client Old ${stamp},DRAFT` } });
+  const oj = await old.json();
+  const oldColl = await db.collection.findFirst({ where: { userId: user.id, name: `Smoke Client Old ${stamp}` } });
+  check("old CSV shape still imports, unassigned", old.ok && oj.createdCount === 1 && oldColl?.contactId === null && oldColl?.status === "DRAFT");
+  await db.collection.deleteMany({ where: { userId: user.id, name: { startsWith: "Smoke Client " }, createdAt: { gte: new Date(stamp - 1000) } } });
+  await db.contact.deleteMany({ where: { id: { in: [existing.id, ...created.map((c) => c.id)] } } });
+}
+
+// ---------------------------------------------------------------- build pack 2026-11-20 item 3: dashboard languages
+async function dashi18n() {
+  const { readFileSync } = await import("fs");
+  check("dashboard languages are English, Spanish, Portuguese", DASHBOARD_LANGUAGES.map((l) => l.id).join(",") === "en,es,pt");
+  const en = dashboardDict("en") as Record<string, string>;
+  let complete = true;
+  for (const l of ["es", "pt"]) {
+    const d = dashboardDict(l) as Record<string, string>;
+    for (const k of Object.keys(en)) if (!d[k] || d[k].includes("—")) complete = false;
+  }
+  check("Spanish and Portuguese translate every dashboard string, no em dashes", complete, `${Object.keys(en).length} keys`);
+  const navSrc = readFileSync("src/app/(dashboard)/nav.tsx", "utf8") + readFileSync("src/app/(dashboard)/collections/subnav.tsx", "utf8");
+  const itemLabels = Array.from(new Set(Array.from(navSrc.matchAll(/\{ href: "[^"]+", label: "([^"]+)"/g), (m) => m[1]))).filter((x) => !x.startsWith("nav_")); // nav_* are dictionary keys (top level menu)
+  const missing = ["es", "pt"].flatMap((l) => itemLabels.filter((x) => !navLabels(l)[x]).map((x) => `${l}:${x}`));
+  check("every product sub-navigation label translated", itemLabels.length > 25 && missing.length === 0, `${itemLabels.length} labels${missing.length ? `, missing ${missing.join(", ")}` : ""}`);
+  check("auto follows the browser language", resolveDashLang("auto", "pt-BR,pt;q=0.9,en;q=0.8") === "pt" && resolveDashLang("auto", "es-MX") === "es" && resolveDashLang("auto", "fr-FR,de;q=0.5") === "en" && resolveDashLang("auto", "") === "en");
+  check("an explicit choice wins over the browser", resolveDashLang("es", "pt-BR") === "es" && resolveDashLang("en", "es-ES") === "en");
+  const user = await demoUser();
+  const original = user.locale;
+  const bad = await req("/api/account/language", { method: "PATCH", json: { locale: "fr" } });
+  check("unsupported dashboard languages are refused", bad.status === 400);
+  const someCollection = await db.collection.findFirstOrThrow({ where: { userId: user.id }, orderBy: { updatedAt: "desc" } });
+  const cases: [string, Record<string, string>, string[]][] = [
+    ["es", {}, ["Hola de nuevo", "Colecciones recientes", "Galería de clientes", "Cerrar sesión", "Centro de ayuda"]],
+    ["pt", {}, ["Bem-vindo de volta", "Coleções recentes", "Galeria de clientes", "Sair", "Central de ajuda"]],
+  ];
+  for (const [l, , want] of cases) {
+    const r = await req("/api/account/language", { method: "PATCH", json: { locale: l } });
+    const html = await (await req("/dashboard")).text();
+    const hits = want.filter((w) => html.includes(w));
+    check(`${l}: dashboard home and chrome switch language`, r.ok && html.includes(`data-dash-lang="${l}"`) && hits.length === want.length, `${hits.length}/${want.length}`);
+    check(`${l}: no English chrome left on the dashboard home`, !html.includes("Welcome back") && !html.includes("Recent collections") && !html.includes(">Sign out<"));
+    check(`${l}: user content untranslated`, html.includes(someCollection.name.replace(/&/g, "&amp;")));
+    const coll = await (await req("/collections")).text();
+    const collWant = l === "es" ? ["+ Nueva colección", "Importar CSV", "Carpetas", "Ajustes predefinidos"] : ["+ Nova coleção", "Importar CSV", "Pastas", "Predefinições"];
+    check(`${l}: collections screen translated`, collWant.every((w) => coll.includes(w)), collWant.filter((w) => !coll.includes(w)).join(", "));
+    const set = await (await req("/settings")).text();
+    check(`${l}: settings shell and language picker translated`, set.includes(l === "es" ? "Idioma del panel" : "Idioma do painel") && set.includes(l === "es" ? "Seguridad" : "Segurança") && set.includes('data-testid="dashboard-language"'));
+  }
+  // auto: the browser decides
+  await req("/api/account/language", { method: "PATCH", json: { locale: "auto" } });
+  const autoPt = await (await req("/dashboard", { headers: { "accept-language": "pt-BR,pt;q=0.9" } })).text();
+  const autoEn = await (await req("/dashboard", { headers: { "accept-language": "en-US,en;q=0.9" } })).text();
+  check("auto: Portuguese browser gets Portuguese, English browser gets English", autoPt.includes("Bem-vindo de volta") && autoEn.includes("Welcome back"));
+  // the client gallery keeps its own language
+  await req("/api/account/language", { method: "PATCH", json: { locale: "es" } });
+  const fixture = await videoFixture();
+  const saved = cookie;
+  cookie = "";
+  const g = await (await req(`/g/${fixture.slug}`)).text();
+  cookie = saved;
+  check("client galleries keep their own language", g.includes(`lang="${fixture.language === "zh" ? "zh-Hans" : fixture.language}"`) && (fixture.language !== "en" || g.includes("Download All")));
+  await db.user.update({ where: { id: user.id }, data: { locale: original } });
+  const back = await (await req("/dashboard")).text();
+  check("language restored", original !== "auto" || back.includes("Welcome back"));
+}
+
+// ---------------------------------------------------------------- build pack 2026-11-20 item 4: Lightroom groundwork (token API)
+async function lightroom() {
+  const { readFileSync } = await import("fs");
+  const user = await demoUser();
+  const originalToken = user.apiToken;
+  const coll = await videoFixture();
+  const sets = await db.photoSet.findMany({ where: { collectionId: coll.id }, orderBy: { order: "asc" } });
+  const before = await db.photo.count({ where: { collectionId: coll.id } });
+  const api = (path: string, token: string | null, init: RequestInit = {}) =>
+    fetch(BASE + path, { ...init, headers: { ...(init.headers as Record<string, string>), ...(token !== null ? { authorization: token } : {}) } });
+  const jpg = readFileSync("public/uploads/smoke/smoke-photo.jpg");
+  const form = (files: { name: string; data: Buffer | string; type: string }[], setId?: string) => {
+    const f = new FormData();
+    for (const x of files) f.append("file", new Blob([typeof x.data === "string" ? x.data : new Uint8Array(x.data)], { type: x.type }), x.name);
+    if (setId !== undefined) f.append("setId", setId);
+    return f;
+  };
+  try {
+    const created = await req("/api/account/api-token", { method: "POST" });
+    const { token } = await created.json();
+    check("owner creates a token", created.ok && /^pxs_[A-Za-z0-9]{32}$/.test(token), String(token).slice(0, 8));
+    const status = await (await req("/api/account/api-token")).json();
+    check("token status never returns the token", status.active === true && !JSON.stringify(status).includes("pxs_"));
+    const me = await api("/api/v1/me", `Bearer ${token}`);
+    const mj = await me.json();
+    check("test connection answers with the account", me.ok && mj.account?.email === user.email && typeof mj.collections === "number" && !JSON.stringify(mj).includes(token));
+    check("scheme is case-insensitive", (await api("/api/v1/me", `bearer ${token}`)).ok && (await api("/api/v1/me", `  BEARER ${token}  `)).ok);
+    const none = await api("/api/v1/me", null);
+    check("no token: 401 with a Bearer challenge", none.status === 401 && /Bearer/.test(none.headers.get("www-authenticate") || ""));
+    check("malformed or wrong tokens: 401", (await api("/api/v1/me", "Bearer nope")).status === 401 && (await api("/api/v1/me", `Bearer pxs_${"x".repeat(32)}`)).status === 401 && (await api("/api/v1/me", `Basic ${token}`)).status === 401);
+    check("token in the query string is not accepted", (await fetch(`${BASE}/api/v1/me?token=${token}`)).status === 401);
+    const list = await (await api("/api/v1/collections", `Bearer ${token}`)).json();
+    check("collections list with set IDs", Array.isArray(list.collections) && list.collections.some((c: { id: string; sets: { id: string }[] }) => c.id === coll.id && c.sets.length > 0));
+    const up = await api(`/api/v1/collections/${coll.id}/photos`, `Bearer ${token}`, { method: "POST", body: form([{ name: `lr-export-${Date.now()}.jpg`, data: jpg, type: "image/jpeg" }]) });
+    const uj = await up.json();
+    const photo = uj.results?.[0]?.photoId ? await db.photo.findUnique({ where: { id: uj.results[0].photoId } }) : null;
+    check("upload lands in the collection's first set", up.ok && uj.uploaded === 1 && !!photo && photo.collectionId === coll.id && photo.setId === sets[0].id, JSON.stringify(uj).slice(0, 160));
+    if (sets.length > 1) {
+      const up2 = await api(`/api/v1/collections/${coll.id}/photos`, `Bearer ${token}`, { method: "POST", body: form([{ name: "lr-set.jpg", data: jpg, type: "image/jpeg" }], sets[1].id) });
+      const u2 = await up2.json();
+      const p2 = u2.results?.[0]?.photoId ? await db.photo.findUnique({ where: { id: u2.results[0].photoId } }) : null;
+      check("upload into a chosen set", up2.ok && p2?.setId === sets[1].id);
+    }
+    const mixed = await api(`/api/v1/collections/${coll.id}/photos`, `Bearer ${token}`, {
+      method: "POST",
+      body: form([
+        { name: "empty.jpg", data: Buffer.alloc(0), type: "image/jpeg" },
+        { name: "notes.txt", data: "hello", type: "text/plain" },
+        { name: "good.jpg", data: jpg, type: "image/jpeg" },
+      ]),
+    });
+    const mx = await mixed.json();
+    check("one bad file never blocks the others, each file reports its result", mixed.ok && mx.uploaded === 1 && mx.failed === 2 && mx.results[0].ok === false && /empty/.test(mx.results[0].error) && mx.results[1].ok === false && mx.results[2].ok === true, JSON.stringify(mx.results).slice(0, 200));
+    const allBad = await api(`/api/v1/collections/${coll.id}/photos`, `Bearer ${token}`, { method: "POST", body: form([{ name: "notes.txt", data: "hello", type: "text/plain" }]) });
+    check("nothing uploaded: 422", allBad.status === 422);
+    const tooMany = await api(`/api/v1/collections/${coll.id}/photos`, `Bearer ${token}`, { method: "POST", body: form(Array.from({ length: 21 }, (_, i) => ({ name: `x${i}.jpg`, data: jpg, type: "image/jpeg" }))) });
+    check("more than 20 files per request refused", tooMany.status === 413);
+    check("wrong set: 404", (await api(`/api/v1/collections/${coll.id}/photos`, `Bearer ${token}`, { method: "POST", body: form([{ name: "a.jpg", data: jpg, type: "image/jpeg" }], "nope") })).status === 404);
+    check("unknown or someone else's collection: 404", (await api(`/api/v1/collections/does-not-exist/photos`, `Bearer ${token}`, { method: "POST", body: form([{ name: "a.jpg", data: jpg, type: "image/jpeg" }]) })).status === 404);
+    check("non multipart body: 415", (await api(`/api/v1/collections/${coll.id}/photos`, `Bearer ${token}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 415);
+    // rotate and revoke take effect immediately
+    const rotated = await (await req("/api/account/api-token", { method: "POST" })).json();
+    check("rotating stops the old token at once", (await api("/api/v1/me", `Bearer ${token}`)).status === 401 && (await api("/api/v1/me", `Bearer ${rotated.token}`)).ok);
+    await req("/api/account/api-token", { method: "DELETE" });
+    check("revoking stops the token at once", (await api("/api/v1/me", `Bearer ${rotated.token}`)).status === 401);
+    // a team member (second shooter) cannot mint or revoke the account token
+    const stamp = Date.now();
+    const inv = `smoke-lr-${stamp}`;
+    const email = `smoke-lr-${stamp}@example.com`;
+    const member = await db.teamMember.create({ data: { userId: user.id, name: "Smoke Shooter", email, role: "SECOND_SHOOTER", inviteToken: inv, inviteExpiresAt: new Date(Date.now() + 86400000) } });
+    await fetch(`${BASE}/api/team/accept`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: inv, password: "smokepass123" }) });
+    const ml = await fetch(`${BASE}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password: "smokepass123" }) });
+    const memberCookie = (ml.headers.get("set-cookie") || "").split(";")[0];
+    const mc = await fetch(`${BASE}/api/account/api-token`, { method: "POST", headers: { cookie: memberCookie } });
+    const md = await fetch(`${BASE}/api/account/api-token`, { method: "DELETE", headers: { cookie: memberCookie } });
+    check("second shooter cannot create or revoke the API token", ml.ok && mc.status === 403 && md.status === 403, `${ml.status} ${mc.status} ${md.status}`);
+    const m2 = await db.teamMember.findUnique({ where: { id: member.id } });
+    if (m2?.loginUserId) await db.user.delete({ where: { id: m2.loginUserId } });
+    await db.teamMember.delete({ where: { id: member.id } });
+    // the in-app guide
+    const { HELP_GUIDES: guides, searchGuides: search } = await import("../src/lib/help-guides");
+    const g = guides.find((x) => x.id === "connect-lightroom");
+    check("Lightroom help guide exists, is searchable and has no em dashes", !!g && search("lightroom").some((x) => x.id === "connect-lightroom") && !JSON.stringify(g).includes("—") && g!.steps.length >= 6);
+    const help = await (await req("/help?q=lightroom")).text();
+    check("help centre shows the Lightroom guide", help.includes('id="connect-lightroom"') && help.includes("Export Actions"));
+    const tools = await (await req("/collections/tools")).text();
+    check("Tools links to the guide and shows the export action script", tools.includes('data-testid="lightroom-guide-link"') && tools.includes('data-testid="lightroom-script"') && tools.includes("/api/v1/me") && tools.includes(`${BASE}/api/v1/collections/$COLLECTION/photos`), "script carries the full site address on first render");
+  } finally {
+    const after = await db.photo.findMany({ where: { collectionId: coll.id }, orderBy: { createdAt: "desc" } });
+    const extra = after.filter((p) => /^(lr-|good|.*-lr-export)/.test(p.filename) || /lr-export|lr-set|good\.jpg/.test(p.filename));
+    if (extra.length) await db.photo.deleteMany({ where: { id: { in: extra.map((p) => p.id) } } });
+    check("fixture restored", (await db.photo.count({ where: { collectionId: coll.id } })) === before);
+    await db.user.update({ where: { id: user.id }, data: { apiToken: originalToken } });
+  }
+}
+
 // ---------------------------------------------------------------- books: the six 5f7b7a9 features
 async function books() {
   const user = await demoUser();
@@ -372,7 +646,7 @@ async function books() {
   await db.teamMember.delete({ where: { id: member.id } });
 }
 
-const ITEMS: Record<string, () => Promise<void>> = { campaigns, help, support, switcher, docs, videocomments, previews, languages, books };
+const ITEMS: Record<string, () => Promise<void>> = { campaigns, help, support, switcher, docs, videocomments, previews, languages, books, storei18n, csvclients, dashi18n, lightroom };
 
 (async () => {
   await login();

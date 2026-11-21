@@ -32,6 +32,46 @@ async function openDownload(contextOpts) {
 }
 
 const items = {
+  async storei18n() {
+    // Spanish gallery: wrong password error, buy dialog, cart and checkout (incl. a server coupon error) are Spanish
+    const { PrismaClient } = (await import("@prisma/client")).default;
+    const db = new PrismaClient();
+    const before = await db.collection.findUniqueOrThrow({ where: { slug: "emma-james-wedding" } });
+    await db.collection.update({ where: { id: before.id }, data: { language: "es" } });
+    try {
+      const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+      const page = await ctx.newPage();
+      await page.goto(BASE + "/g/emma-james-wedding", { waitUntil: "networkidle" });
+      const pw = page.locator('input[type=password]');
+      await pw.fill("definitely-wrong");
+      await pw.press("Enter");
+      await page.getByText("Contraseña incorrecta").waitFor({ timeout: 10000 });
+      check("Spanish gallery: wrong password error from the server shown in Spanish", true);
+      await pw.fill(before.password);
+      await pw.press("Enter");
+      await page.locator("img[loading=lazy]").first().waitFor({ timeout: 15000 });
+      await page.locator("img[loading=lazy]").first().click();
+      await page.getByRole("button", { name: /Comprar/ }).last().click();
+      await page.getByRole("heading", { name: "Comprar esta foto" }).waitFor({ timeout: 10000 });
+      const buyText = (await page.locator(".fixed.inset-0.z-\\[70\\]").innerText()).toLowerCase();
+      check("buy dialog in Spanish", buyText.includes("producto") && buyText.includes("añadir al carrito"), buyText.split("\n").slice(0, 4).join(" / "));
+      await page.getByRole("button", { name: /Añadir al carrito/ }).click();
+      await page.getByRole("heading", { name: "Tu carrito" }).waitFor({ timeout: 10000 });
+      const cartText = await page.locator("aside").last().innerText();
+      check("cart drawer in Spanish", cartText.includes("Subtotal") && cartText.includes("Pagar") && cartText.includes("Quitar"), cartText.split("\n").slice(0, 3).join(" / "));
+      await page.getByRole("button", { name: "Pagar", exact: true }).click();
+      await page.locator('input[placeholder="Opcional"]').fill("NOPE-SMOKE");
+      await page.getByText("Código de cupón desconocido").waitFor({ timeout: 10000 });
+      const coText = (await page.locator("form").last().innerText()).toLowerCase();
+      check("checkout in Spanish with the server coupon error translated", coText.includes("total a pagar") && coText.includes("código de cupón") && coText.includes("dirección de envío"), coText.split("\n").slice(0, 3).join(" / "));
+      const english = ["your cart", "checkout", "total due", "unknown coupon code", "coupon code", "shipping address", "place order", "gift card"].filter((w) => coText.includes(w));
+      check("no English store chrome left in the Spanish checkout", english.length === 0, english.join(", "));
+      await ctx.close();
+    } finally {
+      await db.collection.update({ where: { id: before.id }, data: { language: before.language } });
+      await db.$disconnect();
+    }
+  },
   async languages() {
     // French gallery on an iPhone: the interface and the save steps are French, user content is not
     const { PrismaClient } = (await import("@prisma/client")).default;

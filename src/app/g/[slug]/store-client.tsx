@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { GalleryPhoto } from "./gallery-view";
 import { COUNTRIES, TAX_REGIONS, formatStoreMoney } from "@/lib/store-rates";
+import { galleryT } from "@/lib/gallery-i18n";
+import type { StoreKey } from "@/lib/gallery-i18n-store";
+
+type T = ReturnType<typeof galleryT>;
 
 export type StoreData = {
   products: {
@@ -64,20 +68,12 @@ type ShippingGroup = {
 };
 type PaymentMethod = { id: string; label: string; instructions?: string };
 
-const CATEGORY_LABELS: Record<string, string> = {
-  PRINT: "Prints",
-  CANVAS: "Canvas",
-  METAL: "Metal",
-  ACRYLIC: "Acrylic",
-  WOOD: "Wood",
-  FRAMED: "Framed Prints & Wall Art",
-  ALBUM: "Albums & Books",
-  CARD: "Cards",
-  DIGITAL: "Digital Downloads",
-  PACKAGE: "Packages",
-};
+const CATEGORIES = ["PRINT", "CANVAS", "METAL", "ACRYLIC", "WOOD", "FRAMED", "ALBUM", "CARD", "DIGITAL", "PACKAGE"];
+const categoryLabel = (tr: T, cat: string) => (CATEGORIES.includes(cat) ? tr.t(`cat_${cat}` as StoreKey) : cat);
 
-export function useGalleryStore(slug: string, store: StoreData | null) {
+export function useGalleryStore(slug: string, store: StoreData | null, lang = "en") {
+  const tr = useMemo(() => galleryT(lang), [lang]);
+  const { t } = tr;
   const storageKey = `pxl_cart_${slug}`;
   const [cart, setCart] = useState<CartLine[]>([]);
   const [buyPhoto, setBuyPhoto] = useState<GalleryPhoto | null>(null);
@@ -113,12 +109,13 @@ export function useGalleryStore(slug: string, store: StoreData | null) {
 
   const element = closed ? (
     <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] bg-white text-ink text-sm rounded-full shadow-lg px-5 py-2.5 border border-neutral-200">
-      {store?.closedMessage || "The store is closed right now, please check back soon."}
+      {store?.closedMessage || t("storeClosed")}
     </div>
   ) : store ? (
     <>
       {buyPhoto && (
         <BuyDialog
+          tr={tr}
           store={store}
           photo={buyPhoto}
           onClose={() => setBuyPhoto(null)}
@@ -141,6 +138,7 @@ export function useGalleryStore(slug: string, store: StoreData | null) {
       )}
       {cartOpen && (
         <CartDrawer
+          tr={tr}
           cart={cart}
           onClose={() => setCartOpen(false)}
           onRemove={(i) => persist(cart.filter((_, j) => j !== i))}
@@ -153,6 +151,7 @@ export function useGalleryStore(slug: string, store: StoreData | null) {
       )}
       {checkoutOpen && (
         <CheckoutDialog
+          tr={tr}
           slug={slug}
           store={store}
           cart={cart}
@@ -175,11 +174,13 @@ export function useGalleryStore(slug: string, store: StoreData | null) {
 // ---------------------------------------------------------------- buy dialog
 
 function BuyDialog({
+  tr,
   store,
   photo,
   onClose,
   onAdd,
 }: {
+  tr: T;
   store: StoreData;
   photo: GalleryPhoto;
   onClose: () => void;
@@ -193,6 +194,7 @@ function BuyDialog({
     }
     return Array.from(cats.entries());
   }, [store.products]);
+  const { t } = tr;
 
   const [productId, setProductId] = useState(store.products[0]?.id ?? "");
   const product = store.products.find((p) => p.id === productId) ?? store.products[0];
@@ -221,16 +223,16 @@ function BuyDialog({
         </div>
         <div className="md:w-1/2 p-5 space-y-3 overflow-y-auto">
           <div className="flex items-start justify-between">
-            <h3 className="font-display text-lg">Buy this photo</h3>
+            <h3 className="font-display text-lg">{t("buyPhoto")}</h3>
             <button onClick={onClose} className="text-neutral-400 hover:text-neutral-900">✕</button>
           </div>
           <p className="text-xs text-neutral-400 -mt-2">{photo.filename}</p>
 
           <div>
-            <label className="label">Product</label>
+            <label className="label">{t("product")}</label>
             <select className="input" value={productId} onChange={(e) => setProductId(e.target.value)}>
               {grouped.map(([cat, products]) => (
-                <optgroup key={cat} label={CATEGORY_LABELS[cat] ?? cat}>
+                <optgroup key={cat} label={categoryLabel(tr, cat)}>
                   {products.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
@@ -242,13 +244,13 @@ function BuyDialog({
             {product.description && <p className="text-xs text-neutral-500 mt-1">{product.description}</p>}
             {product.includes && product.includes.length > 0 && (
               <p className="text-xs text-neutral-600 mt-1">
-                <span className="font-medium">Includes:</span> {product.includes.join(", ")}
+                <span className="font-medium">{t("includes")}</span> {product.includes.join(", ")}
               </p>
             )}
           </div>
 
           <div>
-            <label className="label">{product.category === "DIGITAL" ? "Option" : "Size"}</label>
+            <label className="label">{product.category === "DIGITAL" ? t("option") : t("size")}</label>
             <div className="space-y-1.5">
               {product.variants.map((v) => (
                 <button
@@ -268,9 +270,9 @@ function BuyDialog({
 
           {frames.length > 0 && (
             <div>
-              <label className="label">Frame</label>
+              <label className="label">{t("frame")}</label>
               <select className="input" value={frameName} onChange={(e) => setFrameName(e.target.value)}>
-                <option value="">{product.category === "FRAMED" ? "Choose a frame" : "No frame"}</option>
+                <option value="">{product.category === "FRAMED" ? t("chooseFrame") : t("noFrame")}</option>
                 {frames.map((f) => (
                   <option key={f.name} value={f.name}>
                     {f.name}
@@ -283,7 +285,7 @@ function BuyDialog({
 
           {product.category !== "DIGITAL" ? (
             <div>
-              <label className="label">Quantity</label>
+              <label className="label">{t("quantity")}</label>
               <div className="flex items-center gap-2">
                 <button type="button" className="btn-secondary !px-3" onClick={() => setQty(Math.max(1, qty - 1))}>−</button>
                 <span className="w-8 text-center text-sm">{qty}</span>
@@ -291,7 +293,7 @@ function BuyDialog({
               </div>
             </div>
           ) : (
-            <p className="text-xs text-neutral-400">Delivered as a secure download link valid for 7 days.</p>
+            <p className="text-xs text-neutral-400">{t("digitalDelivery")}</p>
           )}
 
           <button
@@ -312,7 +314,7 @@ function BuyDialog({
               })
             }
           >
-            Add to cart, {money(unit * (product.category === "DIGITAL" ? 1 : qty))}
+            {t("addToCart", { price: money(unit * (product.category === "DIGITAL" ? 1 : qty)) })}
           </button>
         </div>
       </div>
@@ -323,12 +325,14 @@ function BuyDialog({
 // ---------------------------------------------------------------- cart drawer
 
 function CartDrawer({
+  tr,
   cart,
   onClose,
   onRemove,
   onQty,
   onCheckout,
 }: {
+  tr: T;
   cart: CartLine[];
   onClose: () => void;
   onRemove: (index: number) => void;
@@ -336,15 +340,16 @@ function CartDrawer({
   onCheckout: () => void;
 }) {
   const subtotal = cart.reduce((s, l) => s + l.qty * l.unitCents, 0);
+  const { t } = tr;
   return (
     <div className="fixed inset-0 z-[70] flex justify-end bg-black/40" onClick={onClose}>
       <aside className="w-full max-w-md bg-white h-full flex flex-col text-ink" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-neutral-200">
-          <h2 className="font-display text-xl">Your Cart</h2>
+          <h2 className="font-display text-xl">{t("yourCart")}</h2>
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-900">✕</button>
         </div>
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {cart.length === 0 && <p className="text-sm text-neutral-400">Your cart is empty, tap the bag icon on any photo.</p>}
+          {cart.length === 0 && <p className="text-sm text-neutral-400">{t("cartEmpty")}</p>}
           {cart.map((l, i) => (
             <div key={`${l.productId}-${l.variantId}-${l.photoId}-${l.frame ?? ""}`} className="flex gap-3 items-start">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -359,7 +364,7 @@ function CartDrawer({
                   <span className="text-xs">{l.qty}</span>
                   <button className="text-xs border rounded px-1.5" onClick={() => onQty(i, Math.min(50, l.qty + 1))}>+</button>
                   <button className="text-xs underline text-red-500 ml-2" onClick={() => onRemove(i)}>
-                    Remove
+                    {t("remove")}
                   </button>
                 </div>
               </div>
@@ -369,11 +374,11 @@ function CartDrawer({
         </div>
         <div className="p-5 border-t border-neutral-200 space-y-3">
           <div className="flex justify-between text-sm">
-            <span>Subtotal</span>
+            <span>{t("subtotal")}</span>
             <span className="font-medium">{money(subtotal)}</span>
           </div>
           <button className="btn-primary w-full" disabled={cart.length === 0} onClick={onCheckout}>
-            Checkout
+            {t("checkout")}
           </button>
         </div>
       </aside>
@@ -384,18 +389,21 @@ function CartDrawer({
 // ---------------------------------------------------------------- checkout
 
 function CheckoutDialog({
+  tr,
   slug,
   store,
   cart,
   onClose,
   onComplete,
 }: {
+  tr: T;
   slug: string;
   store: StoreData;
   cart: CartLine[];
   onClose: () => void;
   onComplete: () => void;
 }) {
+  const { t, te } = tr;
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
@@ -444,7 +452,7 @@ function CheckoutDialog({
       setTaxLabel(json.taxLabel ?? "");
       setPayMethods(json.paymentMethods ?? []);
       if (!payMethod && json.paymentMethods?.[0]) setPayMethod(json.paymentMethods[0].id);
-    } else setError(json.error || "");
+    } else setError(te(json.error));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coupon, giftCard, slug, JSON.stringify(lines), JSON.stringify(extras)]);
 
@@ -472,7 +480,7 @@ function CheckoutDialog({
     });
     const json = await res.json().catch(() => ({}));
     setBusy(false);
-    if (!res.ok) return setError(json.error || "Could not place the order");
+    if (!res.ok) return setError(te(json.error, t("couldNotOrder")));
     setDone({
       orderNumber: json.orderNumber,
       totals: json.totals,
@@ -490,31 +498,31 @@ function CheckoutDialog({
         <div className="bg-white rounded-lg w-full max-w-md text-ink p-6 space-y-4 max-h-[90vh] overflow-y-auto">
           <div className="text-center">
             <p className="text-3xl mb-2">✓</p>
-            <h3 className="font-display text-xl">Thank you, order {done.orderNumber}</h3>
+            <h3 className="font-display text-xl">{t("thankYouOrder", { number: done.orderNumber })}</h3>
             <p className="text-sm text-neutral-500 mt-1">
               {done.emailDelivered
-                ? "A confirmation email with your order details is on its way."
-                : "Your order was received. Email is not connected for this store, so keep this page for your records."}{" "}
+                ? t("confirmEmailSent")
+                : t("noEmailKeep")}{" "}
               {done.awaitingPayment
-                ? `${money(done.totals.total)} is due, paid offline.`
+                ? t("dueOffline", { amount: money(done.totals.total) })
                 : done.totals.total > 0
-                  ? `${money(done.totals.total)} charged (mocked per the owner's payments exclusion).`
-                  : "Fully covered by gift card."}
+                  ? t("chargedMock", { amount: money(done.totals.total) })
+                  : t("giftCovered")}
             </p>
           </div>
           {done.awaitingPayment && (
             <div className="border border-amber-200 bg-amber-50 rounded-md p-4 text-sm space-y-1">
-              <p className="font-medium">How to pay</p>
+              <p className="font-medium">{t("howToPay")}</p>
               <p className="text-neutral-600 whitespace-pre-line">
-                {done.offlineInstructions || "The photographer will contact you with payment details."}
+                {done.offlineInstructions || t("photographerWillContact")}
               </p>
-              <p className="text-xs text-neutral-500">Your order is processed, and any download links are emailed, once payment is received.</p>
+              <p className="text-xs text-neutral-500">{t("processedOnPayment")}</p>
             </div>
           )}
           {done.downloads.length > 0 && (
             <div className="border border-neutral-200 rounded-md p-4 space-y-2">
-              <p className="text-sm font-medium">Your digital downloads</p>
-              <p className="text-xs text-neutral-400">Links are valid for 7 days.</p>
+              <p className="text-sm font-medium">{t("yourDownloads")}</p>
+              <p className="text-xs text-neutral-400">{t("linksValid")}</p>
               {done.downloads.map((d) => (
                 <a key={d.url} href={d.url} className="block text-sm underline" download>
                   ⬇ {d.photoName}, {d.productName}
@@ -526,7 +534,7 @@ function CheckoutDialog({
             </div>
           )}
           <button className="btn-primary w-full" onClick={onClose}>
-            Back to gallery
+            {t("backToGallery")}
           </button>
         </div>
       </div>
@@ -541,30 +549,30 @@ function CheckoutDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h3 className="font-display text-xl">Checkout</h3>
+          <h3 className="font-display text-xl">{t("checkout")}</h3>
           <button type="button" onClick={onClose} className="text-neutral-400 hover:text-neutral-900">✕</button>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="label">Name</label>
+            <label className="label">{t("name")}</label>
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} required />
           </div>
           <div>
-            <label className="label">Email</label>
+            <label className="label">{t("email")}</label>
             <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
           </div>
         </div>
         {hasPhysical && (
           <div>
-            <label className="label">Shipping address</label>
+            <label className="label">{t("shippingAddress")}</label>
             <textarea className="input h-16" value={address} onChange={(e) => setAddress(e.target.value)} required />
           </div>
         )}
         {(hasPhysical || store.taxEnabled) && (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Country</label>
+              <label className="label">{t("country")}</label>
               <select
                 className="input"
                 value={country}
@@ -575,16 +583,16 @@ function CheckoutDialog({
               >
                 {COUNTRIES.map((c) => (
                   <option key={c.code} value={c.code}>
-                    {c.name}
+                    {t(`country_${c.code}` as StoreKey)}
                   </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="label">{country === "CA" ? "Province" : "State"}</label>
+              <label className="label">{country === "CA" ? t("province") : t("state")}</label>
               {regions.length > 0 ? (
                 <select className="input" value={region} onChange={(e) => setRegion(e.target.value)} required={store.taxEnabled && store.taxMode === "AUTO"}>
-                  <option value="">Choose</option>
+                  <option value="">{t("choose")}</option>
                   {regions.map((r) => (
                     <option key={r.code} value={r.code}>
                       {r.name}
@@ -592,7 +600,7 @@ function CheckoutDialog({
                   ))}
                 </select>
               ) : (
-                <input className="input" value={region} onChange={(e) => setRegion(e.target.value)} placeholder="Region" />
+                <input className="input" value={region} onChange={(e) => setRegion(e.target.value)} placeholder={t("region")} />
               )}
             </div>
           </div>
@@ -600,7 +608,7 @@ function CheckoutDialog({
         {groups.map((g) =>
           g.options.length > 0 ? (
             <div key={g.group}>
-              <label className="label">Shipping{groups.length > 1 ? `, ${g.label.toLowerCase()}` : ""}</label>
+              <label className="label">{t("shipping")}{groups.length > 1 ? `, ${(g.group === "SELF" ? t("shippedStudio") : t("shippedLab")).toLowerCase()}` : ""}</label>
               <div className="space-y-1.5">
                 {g.options.map((o) => (
                   <label key={o.id} className="flex items-center gap-2 text-sm border border-neutral-200 rounded-md px-3 py-2 cursor-pointer">
@@ -614,7 +622,7 @@ function CheckoutDialog({
                       {o.name}
                       {o.speed && <span className="text-xs text-neutral-400"> · {o.speed}</span>}
                     </span>
-                    <span className="font-medium">{o.cents === 0 ? "Free" : money(o.cents)}</span>
+                    <span className="font-medium">{o.cents === 0 ? t("free") : money(o.cents)}</span>
                   </label>
                 ))}
               </div>
@@ -623,31 +631,31 @@ function CheckoutDialog({
         )}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="label">Coupon code</label>
-            <input className="input uppercase" value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())} placeholder="Optional" />
-            {totals?.couponError && <p className="text-xs text-red-600 mt-1">{totals.couponError}</p>}
+            <label className="label">{t("couponCode")}</label>
+            <input className="input uppercase" value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())} placeholder={t("optional")} />
+            {totals?.couponError && <p className="text-xs text-red-600 mt-1">{te(totals.couponError)}</p>}
             {totals && !totals.couponError && coupon && (
               <p className="text-xs text-green-600 mt-1">
-                Applied{totals.freeProductName ? `, ${totals.freeProductName} free` : ""}
+                {totals.freeProductName ? t("appliedFree", { product: totals.freeProductName }) : t("applied")}
               </p>
             )}
           </div>
           <div>
-            <label className="label">Gift card</label>
+            <label className="label">{t("giftCard")}</label>
             <input className="input uppercase" value={giftCard} onChange={(e) => setGiftCard(e.target.value.toUpperCase())} placeholder="GC-…" />
-            {totals?.giftCardError && <p className="text-xs text-red-600 mt-1">{totals.giftCardError}</p>}
+            {totals?.giftCardError && <p className="text-xs text-red-600 mt-1">{te(totals.giftCardError)}</p>}
           </div>
         </div>
 
         {totals && (
           <div className="border border-neutral-200 rounded-md p-3 text-sm space-y-1">
-            <Row label="Subtotal" value={money(totals.subtotal)} />
-            {totals.discount > 0 && <Row label="Discount" value={`−${money(totals.discount)}`} />}
-            {hasPhysical && <Row label="Shipping" value={totals.shipping === 0 ? "Free" : money(totals.shipping)} />}
-            {store.taxEnabled && <Row label={taxLabel || "Tax"} value={money(totals.tax)} />}
-            {totals.giftCard > 0 && <Row label="Gift card" value={`−${money(totals.giftCard)}`} />}
+            <Row label={t("subtotal")} value={money(totals.subtotal)} />
+            {totals.discount > 0 && <Row label={t("discount")} value={`−${money(totals.discount)}`} />}
+            {hasPhysical && <Row label={t("shipping")} value={totals.shipping === 0 ? t("free") : money(totals.shipping)} />}
+            {store.taxEnabled && <Row label={taxLabel ? te(taxLabel) : t("tax")} value={money(totals.tax)} />}
+            {totals.giftCard > 0 && <Row label={t("giftCard")} value={`−${money(totals.giftCard)}`} />}
             <div className="flex justify-between font-medium border-t border-neutral-100 pt-1">
-              <span>Total due</span>
+              <span>{t("totalDue")}</span>
               <span>{money(totals.total)}</span>
             </div>
           </div>
@@ -655,12 +663,12 @@ function CheckoutDialog({
 
         {(totals?.total ?? 1) > 0 && payMethods.length > 1 && (
           <div>
-            <label className="label">Payment</label>
+            <label className="label">{t("payment")}</label>
             <div className="flex gap-4 text-sm">
               {payMethods.map((m) => (
                 <label key={m.id} className="flex items-center gap-2">
                   <input type="radio" name="pay" checked={payMethod === m.id} onChange={() => setPayMethod(m.id)} />
-                  {m.id === "card" ? "Card" : "Pay offline"}
+                  {m.id === "card" ? t("payCard") : t("payOffline")}
                 </label>
               ))}
             </div>
@@ -668,27 +676,27 @@ function CheckoutDialog({
         )}
         {(totals?.total ?? 1) > 0 && payMethod === "card" && (
           <div>
-            <label className="label">Card number (mocked per the owner&rsquo;s payments exclusion, any number works)</label>
+            <label className="label">{t("cardMock")}</label>
             <input className="input font-mono" value={card} onChange={(e) => setCard(e.target.value)} />
           </div>
         )}
         {(totals?.total ?? 1) > 0 && payMethod === "offline" && (
           <p className="text-xs text-neutral-600 bg-neutral-50 rounded-md p-3 whitespace-pre-line">
-            {payMethods.find((m) => m.id === "offline")?.instructions || "The photographer will contact you with payment details."}
+            {payMethods.find((m) => m.id === "offline")?.instructions || t("photographerWillContact")}
           </p>
         )}
         {payMethods.length === 0 && (totals?.total ?? 0) > 0 && (
-          <p className="text-xs text-red-600">This store has no payment method switched on.</p>
+          <p className="text-xs text-red-600">{t("noPayMethod")}</p>
         )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         {store.termsOfSale && <p className="text-[11px] text-neutral-400">{store.termsOfSale}</p>}
         <button className="btn-primary w-full" disabled={busy}>
           {busy
-            ? "Placing order…"
+            ? t("placingOrder")
             : (totals && totals.total === 0) || payMethod === "offline"
-              ? "Place order"
-              : `Pay ${totals ? money(totals.total) : ""}`}
+              ? t("placeOrder")
+              : t("payAmount", { amount: totals ? money(totals.total) : "" }).trim()}
         </button>
       </form>
     </div>

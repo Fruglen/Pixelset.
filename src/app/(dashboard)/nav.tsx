@@ -5,6 +5,8 @@ import { useEffect, useRef, useState, type ComponentType } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { NotificationBell } from "@/components/notification-bell";
 import { PIXORA_WORDMARK } from "@/lib/brand-assets";
+import { useDashT } from "@/components/dash-lang";
+import type { DashKey } from "@/lib/dashboard-i18n";
 import {
   ArrowLeftIcon,
   ChevronDownIcon,
@@ -26,11 +28,12 @@ import {
 // product switcher at the top of the account swaps the sidebar to that
 // product's pages; "All products" returns to the account overview.
 type IconType = ComponentType<{ className?: string }>;
-type ProductNav = { id: string; label: string; icon: IconType; home: string; match: string[]; items: { href: string; label: string; exact?: boolean }[] };
+type ProductNav = { id: string; label: string; labelKey: DashKey; icon: IconType; home: string; match: string[]; items: { href: string; label: string; exact?: boolean }[] };
 export const PRODUCTS: ProductNav[] = [
   {
     id: "gallery",
     label: "Client Gallery",
+    labelKey: "nav_clientGallery",
     icon: GalleryIcon,
     home: "/collections",
     match: ["/collections"],
@@ -44,6 +47,7 @@ export const PRODUCTS: ProductNav[] = [
   {
     id: "website",
     label: "Website",
+    labelKey: "nav_website",
     icon: WebsiteIcon,
     home: "/website",
     match: ["/website"],
@@ -59,6 +63,7 @@ export const PRODUCTS: ProductNav[] = [
   {
     id: "studio",
     label: "Studio Manager",
+    labelKey: "nav_studio",
     icon: StudioIcon,
     home: "/studio",
     match: ["/studio"],
@@ -83,6 +88,7 @@ export const PRODUCTS: ProductNav[] = [
   {
     id: "store",
     label: "Store",
+    labelKey: "nav_store",
     icon: StoreIcon,
     home: "/store",
     match: ["/store"],
@@ -96,8 +102,8 @@ export const PRODUCTS: ProductNav[] = [
       { href: "/store/settings", label: "Settings" },
     ],
   },
-  { id: "editor", label: "Photo Editor", icon: EditorIcon, home: "/editor", match: ["/editor"], items: [{ href: "/editor", label: "Editor", exact: true }] },
-  { id: "mobile", label: "Mobile App", icon: MobileIcon, home: "/mobile-app", match: ["/mobile-app"], items: [{ href: "/mobile-app", label: "Mobile Apps", exact: true }] },
+  { id: "editor", label: "Photo Editor", labelKey: "nav_editor", icon: EditorIcon, home: "/editor", match: ["/editor"], items: [{ href: "/editor", label: "Editor", exact: true }] },
+  { id: "mobile", label: "Mobile App", labelKey: "nav_mobile", icon: MobileIcon, home: "/mobile-app", match: ["/mobile-app"], items: [{ href: "/mobile-app", label: "Mobile Apps", exact: true }] },
 ];
 
 export function productFor(pathname: string): ProductNav | null {
@@ -106,15 +112,15 @@ export function productFor(pathname: string): ProductNav | null {
 
 const NAV_EVENT = "pixelset:nav";
 
-const NAV: { href: string; label: string; icon: IconType }[] = [
-  { href: "/dashboard", label: "Dashboard", icon: DashboardIcon },
-  { href: "/collections", label: "Client Gallery", icon: GalleryIcon },
-  { href: "/store", label: "Store", icon: StoreIcon },
-  { href: "/website", label: "Website", icon: WebsiteIcon },
-  { href: "/studio", label: "Studio Manager", icon: StudioIcon },
-  { href: "/editor", label: "Photo Editor", icon: EditorIcon },
-  { href: "/mobile-app", label: "Mobile App", icon: MobileIcon },
-  { href: "/reports", label: "Reports", icon: ReportsIcon },
+const NAV: { href: string; label: DashKey; icon: IconType }[] = [
+  { href: "/dashboard", label: "nav_dashboard", icon: DashboardIcon },
+  { href: "/collections", label: "nav_clientGallery", icon: GalleryIcon },
+  { href: "/store", label: "nav_store", icon: StoreIcon },
+  { href: "/website", label: "nav_website", icon: WebsiteIcon },
+  { href: "/studio", label: "nav_studio", icon: StudioIcon },
+  { href: "/editor", label: "nav_editor", icon: EditorIcon },
+  { href: "/mobile-app", label: "nav_mobile", icon: MobileIcon },
+  { href: "/reports", label: "nav_reports", icon: ReportsIcon },
 ];
 
 const ACTIVE_LINK = "bg-brand-50 text-brand-800 font-medium border-r-2 border-brand-500";
@@ -123,6 +129,7 @@ const IDLE_LINK = "text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900 t
 export function Sidebar({ supportInbox = false }: { supportInbox?: boolean }) {
   const pathname = usePathname();
   const product = productFor(pathname);
+  const { t, nav } = useDashT();
   // Phase 5B platform: on phones the sidebar is a drawer opened from the top bar.
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -140,16 +147,16 @@ export function Sidebar({ supportInbox = false }: { supportInbox?: boolean }) {
       }`}
     >
       <div className="px-6 py-5 border-b border-neutral-100">
-        <Link href="/dashboard" className="block" aria-label="Pixora home">
+        <Link href="/dashboard" className="block" aria-label={t("homeLabel")}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={PIXORA_WORDMARK} alt="Pixora" className="h-8 w-auto" />
         </Link>
-        {product ? <p className="text-xs text-neutral-400 mt-1.5">{product.label}</p> : null}
+        {product ? <p className="text-xs text-neutral-400 mt-1.5">{t(product.labelKey)}</p> : null}
       </div>
       {product ? (
         <nav className="flex-1 py-4" data-product-nav={product.id}>
           <Link href="/dashboard" className="flex items-center gap-2 px-6 pb-3 text-xs text-neutral-500 hover:text-brand-700 transition-colors">
-            <ArrowLeftIcon className="h-3.5 w-3.5" /> All products
+            <ArrowLeftIcon className="h-3.5 w-3.5" /> {t("allProducts")}
           </Link>
           {product.items.map((item) => {
             const active = item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -159,7 +166,7 @@ export function Sidebar({ supportInbox = false }: { supportInbox?: boolean }) {
                 href={item.href}
                 className={`flex items-center gap-3 px-6 py-2.5 text-sm ${active ? ACTIVE_LINK : IDLE_LINK}`}
               >
-                {item.label}
+                {nav(item.label)}
               </Link>
             );
           })}
@@ -177,7 +184,7 @@ export function Sidebar({ supportInbox = false }: { supportInbox?: boolean }) {
               className={`flex items-center gap-3 px-6 py-2.5 text-sm ${active ? ACTIVE_LINK : IDLE_LINK}`}
             >
               <ItemIcon className={`h-5 w-5 ${active ? "text-brand-600" : "text-neutral-400"}`} />
-              {item.label}
+              {t(item.label)}
             </Link>
           );
         })}
@@ -190,7 +197,7 @@ export function Sidebar({ supportInbox = false }: { supportInbox?: boolean }) {
           data-testid="nav-help"
         >
           <HelpIcon className={`h-5 w-5 ${pathname.startsWith("/help") ? "text-brand-600" : "text-neutral-400"}`} />
-          Help centre
+          {t("nav_help")}
         </Link>
         {supportInbox ? (
           <Link
@@ -199,7 +206,7 @@ export function Sidebar({ supportInbox = false }: { supportInbox?: boolean }) {
             data-testid="nav-support-inbox"
           >
             <InboxIcon className={`h-5 w-5 ${pathname.startsWith("/support-inbox") ? "text-brand-600" : "text-neutral-400"}`} />
-            Support inbox
+            {t("nav_supportInbox")}
           </Link>
         ) : null}
         <Link
@@ -209,7 +216,7 @@ export function Sidebar({ supportInbox = false }: { supportInbox?: boolean }) {
           }`}
         >
           <SettingsIcon className={`h-5 w-5 ${pathname.startsWith("/settings") ? "text-brand-600" : "text-neutral-400"}`} />
-          Settings
+          {t("nav_settings")}
         </Link>
       </div>
     </aside>
@@ -221,6 +228,7 @@ function ProductSwitcher() {
   const pathname = usePathname();
   const product = productFor(pathname);
   const [open, setOpen] = useState(false);
+  const { t } = useDashT();
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
@@ -241,13 +249,13 @@ function ProductSwitcher() {
         data-testid="product-switcher"
       >
         <CurrentIcon className="h-[18px] w-[18px] text-brand-600" />
-        <span>{product ? product.label : "All products"}</span>
+        <span>{product ? t(product.labelKey) : t("allProducts")}</span>
         <ChevronDownIcon className="h-3.5 w-3.5 text-neutral-400" />
       </button>
       {open ? (
         <div role="menu" className="absolute left-0 mt-1 w-56 rounded-xl border border-neutral-200 bg-white shadow-lift py-1 z-50">
           <Link href="/dashboard" className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-brand-50 transition-colors">
-            <DashboardIcon className="h-[18px] w-[18px] text-neutral-400" /> All products
+            <DashboardIcon className="h-[18px] w-[18px] text-neutral-400" /> {t("allProducts")}
           </Link>
           {PRODUCTS.map((p) => {
             const PIcon = p.icon;
@@ -257,8 +265,8 @@ function ProductSwitcher() {
                 href={p.home}
                 className={`flex items-center gap-2 px-3 py-2 text-sm hover:bg-brand-50 transition-colors ${product?.id === p.id ? "font-medium" : ""}`}
               >
-                <PIcon className={`h-[18px] w-[18px] ${product?.id === p.id ? "text-brand-600" : "text-neutral-400"}`} /> {p.label}
-                {product?.id === p.id ? <span className="ml-auto text-xs font-medium text-brand-600">current</span> : null}
+                <PIcon className={`h-[18px] w-[18px] ${product?.id === p.id ? "text-brand-600" : "text-neutral-400"}`} /> {t(p.labelKey)}
+                {product?.id === p.id ? <span className="ml-auto text-xs font-medium text-brand-600">{t("current")}</span> : null}
               </Link>
             );
           })}
@@ -270,6 +278,7 @@ function ProductSwitcher() {
 
 export function TopBar({ name, businessName }: { name: string; businessName: string }) {
   const router = useRouter();
+  const { t } = useDashT();
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
@@ -279,7 +288,7 @@ export function TopBar({ name, businessName }: { name: string; businessName: str
     <header className="h-14 border-b border-neutral-200 bg-white flex items-center px-4 md:px-6 gap-3 md:gap-4 sticky top-0 z-20">
       <button
         className="md:hidden px-1 text-neutral-600"
-        aria-label="Open navigation"
+        aria-label={t("openNav")}
         onClick={() => window.dispatchEvent(new Event(NAV_EVENT))}
       >
         <MenuIcon className="h-6 w-6" />
@@ -292,7 +301,7 @@ export function TopBar({ name, businessName }: { name: string; businessName: str
         {name}
       </span>
       <button onClick={logout} className="text-sm text-neutral-500 hover:text-brand-700 underline transition-colors">
-        Sign out
+        {t("signOut")}
       </button>
     </header>
   );

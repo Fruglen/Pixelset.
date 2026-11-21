@@ -2,18 +2,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useDashT } from "@/components/dash-lang";
+import type { DashKey } from "@/lib/dashboard-i18n";
 
-const TABS = [
-  { href: "/settings", label: "Account" },
-  { href: "/settings/gallery", label: "Gallery" },
-  { href: "/settings/team", label: "Team" },
-  { href: "/settings/emails", label: "Email Templates" },
-  { href: "/settings/plan", label: "Plan" },
-  { href: "/settings/security", label: "Security" },
+const TABS: { href: string; label: DashKey }[] = [
+  { href: "/settings", label: "tab_account" },
+  { href: "/settings/gallery", label: "tab_gallery" },
+  { href: "/settings/team", label: "tab_team" },
+  { href: "/settings/emails", label: "tab_emails" },
+  { href: "/settings/plan", label: "tab_plan" },
+  { href: "/settings/security", label: "tab_security" },
 ];
 
 export function SettingsTabs() {
   const pathname = usePathname();
+  const { t } = useDashT();
   return (
     <div className="border-b border-neutral-200 flex gap-5 overflow-x-auto mb-6">
       {TABS.map((tab) => {
@@ -24,7 +27,7 @@ export function SettingsTabs() {
             href={tab.href}
             className={`pb-2.5 text-sm whitespace-nowrap ${active ? "tab-active" : "tab-inactive"}`}
           >
-            {tab.label}
+            {t(tab.label)}
           </Link>
         );
       })}

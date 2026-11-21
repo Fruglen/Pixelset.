@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { formatDate } from "@/lib/utils";
 import { EmptyState } from "@/components/empty-state";
 import { GalleryIcon, ImagesIcon } from "@/components/icons";
+import { useDashT } from "@/components/dash-lang";
+import type { DashKey } from "@/lib/dashboard-i18n";
 
 type CollectionItem = {
   id: string;
@@ -40,6 +42,8 @@ export default function CollectionsClient({
   presets: { id: string; name: string }[];
 }) {
   const router = useRouter();
+  const { t } = useDashT();
+  const statusLabel = (st: string) => (["DRAFT", "PRERELEASE", "PUBLISHED"].includes(st) ? t(`status_${st}` as DashKey) : st.toLowerCase());
   const [activeFolder, setActiveFolder] = useState<string | "all" | "starred">("all");
   const [starMap, setStarMap] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(collections.map((c) => [c.id, c.starred]))
@@ -76,7 +80,7 @@ export default function CollectionsClient({
   const [showImport, setShowImport] = useState(false);
   const [csvText, setCsvText] = useState("");
   const [importBusy, setImportBusy] = useState(false);
-  const [importResult, setImportResult] = useState<{ created: { name: string; slug: string }[]; errors: { row: number; message: string }[] } | null>(null);
+  const [importResult, setImportResult] = useState<{ created: { name: string; slug: string; client?: { email: string; created: boolean } }[]; errors: { row: number; message: string }[]; contactsCreated?: number } | null>(null);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareNote, setShareNote] = useState("");
 
@@ -121,7 +125,7 @@ export default function CollectionsClient({
       setImportResult({ created: [], errors: [{ row: 0, message: data.error || "Import failed" }] });
       return;
     }
-    setImportResult({ created: data.created ?? [], errors: data.errors ?? [] });
+    setImportResult({ created: data.created ?? [], errors: data.errors ?? [], contactsCreated: data.contactsCreated ?? 0 });
     router.refresh();
   }
 
@@ -186,7 +190,7 @@ export default function CollectionsClient({
     } else {
       setBusy(false);
       const data = await res.json().catch(() => ({}));
-      setError(data.error || "Could not create collection");
+      setError(data.error || t("couldNotCreate"));
     }
   }
 
@@ -204,7 +208,7 @@ export default function CollectionsClient({
   }
 
   async function deleteFolder(id: string) {
-    if (!confirm("Delete this folder? Collections inside are kept.")) return;
+    if (!confirm(t("deleteFolderConfirm"))) return;
     await fetch(`/api/folders/${id}`, { method: "DELETE" });
     if (activeFolder === id) setActiveFolder("all");
     router.refresh();
@@ -222,16 +226,16 @@ export default function CollectionsClient({
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="font-display text-2xl">Client Gallery</h1>
+        <h1 className="font-display text-2xl">{t("nav_clientGallery")}</h1>
         <div className="flex gap-2">
           <Link href="/collections/presets" className="btn-secondary">
-            View Presets
+            {t("viewPresets")}
           </Link>
           <button className="btn-secondary" onClick={() => { setShowImport(true); setImportResult(null); }}>
-            Import CSV
+            {t("importCsv")}
           </button>
           <button className="btn-primary" onClick={() => setShowCreate(true)}>
-            + New Collection
+            {t("newCollectionBtn")}
           </button>
         </div>
       </div>
@@ -239,9 +243,9 @@ export default function CollectionsClient({
       {/* Bulk edit bar */}
       {selectedIds.length > 0 && (
         <div className="card p-3 mb-5 flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{selectedIds.length} selected</span>
+          <span className="text-sm font-medium">{t("selectedN", { n: selectedIds.length })}</span>
           <select className="input !w-48 !py-1.5 text-sm" value={bulkPresetId} onChange={(e) => setBulkPresetId(e.target.value)}>
-            <option value="">Apply preset…</option>
+            <option value="">{t("applyPreset")}</option>
             {presets.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -249,25 +253,25 @@ export default function CollectionsClient({
             ))}
           </select>
           <select className="input !w-44 !py-1.5 text-sm" value={bulkFolderId} onChange={(e) => setBulkFolderId(e.target.value)}>
-            <option value="__keep">Keep folder</option>
-            <option value="__none">No folder</option>
+            <option value="__keep">{t("keepFolder")}</option>
+            <option value="__none">{t("noFolder")}</option>
             {folders.map((f) => (
               <option key={f.id} value={f.id}>
-                Move to {f.name}
+                {t("moveTo", { folder: f.name })}
               </option>
             ))}
           </select>
           <select className="input !w-40 !py-1.5 text-sm" value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)}>
-            <option value="">Keep status</option>
-            <option value="DRAFT">Draft</option>
-            <option value="PRERELEASE">Pre-release</option>
-            <option value="PUBLISHED">Published</option>
+            <option value="">{t("keepStatus")}</option>
+            <option value="DRAFT">{t("status_DRAFT")}</option>
+            <option value="PRERELEASE">{t("status_PRERELEASE")}</option>
+            <option value="PUBLISHED">{t("status_PUBLISHED")}</option>
           </select>
           <button className="btn-primary !py-1.5" onClick={applyBulk} disabled={bulkBusy}>
-            {bulkBusy ? "Applying…" : "Apply to selected"}
+            {bulkBusy ? t("applying") : t("applySelected")}
           </button>
           <button className="btn-secondary !py-1.5" onClick={() => setSelected({})}>
-            Clear
+            {t("clear")}
           </button>
         </div>
       )}
@@ -276,14 +280,14 @@ export default function CollectionsClient({
       <div className="flex gap-8">
         {/* Folders */}
         <aside className="w-48 shrink-0">
-          <p className="label">Folders</p>
+          <p className="label">{t("folders")}</p>
           <button
             onClick={() => setActiveFolder("all")}
             className={`block w-full text-left px-2 py-1.5 rounded text-sm ${
               activeFolder === "all" ? "bg-neutral-200 font-medium" : "hover:bg-neutral-100"
             }`}
           >
-            All collections ({collections.length})
+            {t("allCollections", { n: collections.length })}
           </button>
           <button
             onClick={() => setActiveFolder("starred")}
@@ -291,7 +295,7 @@ export default function CollectionsClient({
               activeFolder === "starred" ? "bg-neutral-200 font-medium" : "hover:bg-neutral-100"
             }`}
           >
-            ★ Starred ({Object.values(starMap).filter(Boolean).length})
+            ★ {t("starred", { n: Object.values(starMap).filter(Boolean).length })}
           </button>
           {folders.map((f) => (
             <div key={f.id} className="group flex items-center">
@@ -306,7 +310,7 @@ export default function CollectionsClient({
               <button
                 onClick={() => deleteFolder(f.id)}
                 className="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-red-600 px-1 text-xs"
-                title="Delete folder"
+                title={t("deleteFolder")}
               >
                 ✕
               </button>
@@ -319,7 +323,7 @@ export default function CollectionsClient({
                 autoFocus
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
-                placeholder="Folder name"
+                placeholder={t("folderName")}
                 onBlur={() => !newFolderName && setAddingFolder(false)}
               />
             </form>
@@ -328,14 +332,14 @@ export default function CollectionsClient({
               onClick={() => setAddingFolder(true)}
               className="mt-2 text-sm text-neutral-500 hover:text-neutral-900 px-2"
             >
-              + New folder
+              {t("newFolder")}
             </button>
           )}
 
           {/* One share link for the whole folder */}
           {activeFolderObj && (
             <div className="mt-6 border-t border-neutral-100 pt-4">
-              <p className="label">Folder share link</p>
+              <p className="label">{t("folderShareLink")}</p>
               <label className="flex items-center gap-2 text-sm mt-1">
                 <input
                   type="checkbox"
@@ -343,19 +347,18 @@ export default function CollectionsClient({
                   disabled={shareBusy}
                   onChange={(e) => setFolderSharing(activeFolderObj, e.target.checked)}
                 />
-                Share this folder
+                {t("shareFolder")}
               </label>
               {activeFolderObj.isPublic && activeFolderObj.slug ? (
                 <p className="text-xs text-neutral-500 mt-2 break-all">
                   {typeof window !== "undefined" ? window.location.origin : ""}/folder/{activeFolderObj.slug}
                   <span className="block text-neutral-400 mt-1">
-                    Anyone with the link sees this folder&rsquo;s published galleries. Each gallery keeps its
-                    own password.
+                    {t("folderShareOn")}
                   </span>
                 </p>
               ) : (
                 <p className="text-xs text-neutral-400 mt-2">
-                  Off: the folder is only an organising tool in your dashboard.
+                  {t("folderShareOff")}
                 </p>
               )}
               {shareNote && <p className="text-xs text-neutral-500 mt-1">{shareNote}</p>}
@@ -366,9 +369,9 @@ export default function CollectionsClient({
         {/* Collection grid */}
         <div className="flex-1">
           {visible.length === 0 ? (
-            <EmptyState icon={GalleryIcon} line="No collections here yet. Create your first collection to get started.">
+            <EmptyState icon={GalleryIcon} line={t("emptyCollections")}>
               <button className="btn-primary mt-5" onClick={() => setShowCreate(true)}>
-                New collection
+                {t("newCollection")}
               </button>
             </EmptyState>
           ) : (
@@ -377,14 +380,14 @@ export default function CollectionsClient({
                 <div key={c.id} className="card overflow-hidden group relative">
                   <label
                     className="absolute top-2 left-2 z-10 flex items-center gap-1 bg-white/90 rounded px-1.5 py-1 text-xs shadow-sm cursor-pointer"
-                    title="Select for bulk edit"
+                    title={t("selectForBulk")}
                   >
                     <input
                       type="checkbox"
                       checked={Boolean(selected[c.id])}
                       onChange={(e) => setSelected((m) => ({ ...m, [c.id]: e.target.checked }))}
                     />
-                    Select
+                    {t("select")}
                   </label>
                   <Link href={`/collections/${c.id}`} className="block">
                     <div className="aspect-[4/3] bg-neutral-100 overflow-hidden">
@@ -408,7 +411,7 @@ export default function CollectionsClient({
                         <button
                           type="button"
                           onClick={() => toggleStar(c.id)}
-                          title={starMap[c.id] ? "Unstar" : "Star"}
+                          title={starMap[c.id] ? t("unstar") : t("star")}
                           aria-pressed={starMap[c.id]}
                           className={`text-sm leading-none ${starMap[c.id] ? "text-amber-500" : "text-neutral-300 hover:text-neutral-500"}`}
                         >
@@ -423,20 +426,20 @@ export default function CollectionsClient({
                           STATUS_STYLES[c.status] ?? "bg-neutral-100 text-neutral-600"
                         }`}
                       >
-                        {c.status === "PRERELEASE" ? "Pre-release" : c.status.toLowerCase()}
+                        {statusLabel(c.status)}
                       </span>
                     </div>
                     <p className="text-xs text-neutral-500 mt-0.5">
-                      {c.photoCount} photos
+                      {t("photosCount", { n: c.photoCount })}
                       {c.eventDate ? ` · ${formatDate(c.eventDate)}` : ""}
-                      {c.expiresAt && new Date(c.expiresAt) < new Date() ? " · expired" : ""}
+                      {c.expiresAt && new Date(c.expiresAt) < new Date() ? ` · ${t("expired")}` : ""}
                     </p>
                     <select
                       className="mt-2 w-full text-xs border border-neutral-200 rounded px-1 py-1 text-neutral-500 bg-white"
                       value={c.folderId ?? ""}
                       onChange={(e) => moveToFolder(c.id, e.target.value)}
                     >
-                      <option value="">No folder</option>
+                      <option value="">{t("noFolder")}</option>
                       {folders.map((f) => (
                         <option key={f.id} value={f.id}>
                           {f.name}
@@ -455,9 +458,9 @@ export default function CollectionsClient({
       {showCreate && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <form onSubmit={createCollection} className="bg-white rounded-lg p-6 w-full max-w-md space-y-4">
-            <h2 className="font-display text-xl">New Collection</h2>
+            <h2 className="font-display text-xl">{t("newCollectionTitle")}</h2>
             <div>
-              <label className="label">Collection name</label>
+              <label className="label">{t("collectionName")}</label>
               <input
                 className="input"
                 value={name}
@@ -468,7 +471,7 @@ export default function CollectionsClient({
               />
             </div>
             <div>
-              <label className="label">Event date (optional)</label>
+              <label className="label">{t("eventDateOptional")}</label>
               <input
                 className="input"
                 type="date"
@@ -477,20 +480,20 @@ export default function CollectionsClient({
               />
             </div>
             <div>
-              <label className="label">Custom URL (optional)</label>
+              <label className="label">{t("customUrl")}</label>
               <input
                 className="input"
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
                 placeholder="emma-james-wedding"
               />
-              <p className="text-xs text-neutral-400 mt-1">Leave blank to generate from the name.</p>
+              <p className="text-xs text-neutral-400 mt-1">{t("customUrlHint")}</p>
             </div>
             {presets.length > 0 && (
               <div>
-                <label className="label">Apply a Collection Preset</label>
+                <label className="label">{t("applyCollectionPreset")}</label>
                 <select className="input" value={presetId} onChange={(e) => setPresetId(e.target.value)}>
-                  <option value="">No preset, Pixora defaults</option>
+                  <option value="">{t("noPreset")}</option>
                   {/* Phase 5B platform: the account default preset is preselected */}
                   {presets.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -501,7 +504,7 @@ export default function CollectionsClient({
               </div>
             )}
             <div>
-              <label className="label">Link a Picflow gallery (optional)</label>
+              <label className="label">{t("picflowLink")}</label>
               <input
                 className="input font-mono text-xs"
                 value={picflowUrl}
@@ -509,16 +512,16 @@ export default function CollectionsClient({
                 placeholder="https://yourname.picflow.com/your-gallery"
               />
               <p className="text-xs text-neutral-400 mt-1">
-                Shows the Picflow gallery in this collection as external references, without copying any files.
+                {t("picflowHint")}
               </p>
             </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" className="btn-secondary" onClick={() => setShowCreate(false)}>
-                Cancel
+                {t("cancel")}
               </button>
               <button className="btn-primary" disabled={busy}>
-                {busy ? "Creating…" : "Create Collection"}
+                {busy ? t("creating") : t("createCollection")}
               </button>
             </div>
           </form>
@@ -529,11 +532,12 @@ export default function CollectionsClient({
       {showImport && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg p-6 w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto">
-            <h2 className="font-display text-xl">Import collections from CSV</h2>
+            <h2 className="font-display text-xl">{t("importTitle")}</h2>
             <p className="text-sm text-neutral-500">
-              One collection per row. Header row: <span className="font-mono text-xs">name,eventDate,folder,password,pin,preset,status</span>{" "}
+              One collection per row. Header row: <span className="font-mono text-xs">name,eventDate,folder,password,pin,preset,status,clientEmail,clientName</span>{" "}
               (only name is required). Folders are created when missing, presets are matched by name, and every
-              row reports its own result.
+              row reports its own result. With a clientEmail column, each gallery is assigned to that client: an
+              existing Studio contact with the same email is used, otherwise a new client contact is created.
             </p>
             <input
               type="file"
@@ -548,13 +552,20 @@ export default function CollectionsClient({
               className="input h-40 font-mono text-xs"
               value={csvText}
               onChange={(e) => setCsvText(e.target.value)}
-              placeholder={"name,eventDate,folder,password,pin,preset,status\nSpring Minis A,2026-04-12,Minis,,,Standard,DRAFT"}
+              placeholder={"name,eventDate,folder,password,pin,preset,status,clientEmail,clientName\nSpring Minis A,2026-04-12,Minis,,,Standard,DRAFT,ana@example.com,Ana Lopez"}
             />
             {importResult && (
               <div className="text-sm space-y-1">
                 {importResult.created.length > 0 && (
                   <p className="text-emerald-700">
                     Created {importResult.created.length}: {importResult.created.map((c) => c.name).join(", ")}
+                  </p>
+                )}
+                {importResult.created.some((c) => c.client) && (
+                  <p className="text-neutral-600" data-testid="import-clients">
+                    Assigned {importResult.created.filter((c) => c.client).length} to clients
+                    {importResult.contactsCreated ? `, ${importResult.contactsCreated} new client contact${importResult.contactsCreated === 1 ? "" : "s"} created` : ""}:{" "}
+                    {importResult.created.filter((c) => c.client).map((c) => `${c.name} (${c.client!.email})`).join(", ")}
                   </p>
                 )}
                 {importResult.errors.map((e) => (
@@ -566,10 +577,10 @@ export default function CollectionsClient({
             )}
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" className="btn-secondary" onClick={() => setShowImport(false)}>
-                Close
+                {t("close")}
               </button>
               <button className="btn-primary" onClick={runImport} disabled={importBusy || !csvText.trim()}>
-                {importBusy ? "Importing…" : "Import"}
+                {importBusy ? t("importing") : t("import")}
               </button>
             </div>
           </div>

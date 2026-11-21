@@ -10,6 +10,12 @@ import { parsePresetSettings, presetSettingsData } from "@/lib/preset-apply";
 // password, pin, preset, status. Folders are found or created by name;
 // presets are matched by name. Each row reports its own result, so one bad
 // row never blocks the rest.
+//
+// Build pack 2026-11-20: optional client columns. "clientEmail" (also accepted
+// as "email" or "client") assigns the new gallery to a studio contact: the
+// contact is matched by email (case-insensitive) or created as a CLIENT with
+// source IMPORT. "clientName" names a newly created contact. CSVs without
+// these columns import exactly as before.
 
 function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
@@ -67,20 +73,25 @@ export async function POST(req: NextRequest) {
     pin: col("pin"),
     preset: col("preset"),
     status: col("status"),
+    clientEmail: [col("clientemail"), col("email"), col("client")].find((i) => i >= 0) ?? -1,
+    clientName: col("clientname"),
   };
   if (idx.name === -1) {
     return NextResponse.json({ error: "The CSV header must include a name column" }, { status: 400 });
   }
   const get = (r: string[], i: number) => (i >= 0 ? (r[i] ?? "").trim() : "");
 
-  const [folders, presets] = await Promise.all([
+  const [folders, presets, contacts] = await Promise.all([
     db.folder.findMany({ where: { userId: user.id } }),
     db.preset.findMany({ where: { userId: user.id } }),
+    idx.clientEmail >= 0 ? db.contact.findMany({ where: { userId: user.id }, select: { id: true, email: true, state: true } }) : Promise.resolve([]),
   ]);
+  const contactByEmail = new Map(contacts.filter((c) => c.email).map((c) => [c.email.trim().toLowerCase(), c]));
+  let contactsCreated = 0;
   const folderByName = new Map(folders.map((f) => [f.name.toLowerCase(), f.id]));
   const presetByName = new Map(presets.map((p) => [p.name.toLowerCase(), p]));
 
-  const created: { row: number; name: string; slug: string }[] = [];
+  const created: { row: number; name: string; slug: string; client?: { email: string; created: boolean } }[] = [];
   const errors: { row: number; message: string }[] = [];
 
   for (let r = 1; r < rows.length; r++) {
@@ -127,6 +138,11 @@ export async function POST(req: NextRequest) {
         }
         data.status = statusRaw;
       }
+      const clientEmail = get(row, idx.clientEmail).toLowerCase();
+      if (clientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail)) {
+        errors.push({ row: rowNum, message: `Client email "${clientEmail}" is not a valid email address` });
+        continue;
+      }
       const eventDateRaw = get(row, idx.eventDate);
       let slug = slugify(name) || "collection";
       let candidate = slug;
@@ -135,6 +151,24 @@ export async function POST(req: NextRequest) {
         candidate = `${slug}-${++i}`;
       }
       slug = candidate;
+      let client: { id: string; email: string; created: boolean } | null = null;
+      if (clientEmail) {
+        const known = contactByEmail.get(clientEmail);
+        if (known) {
+          if (known.state !== "CLIENT") {
+            await db.contact.update({ where: { id: known.id }, data: { state: "CLIENT" } });
+            known.state = "CLIENT";
+          }
+          client = { id: known.id, email: clientEmail, created: false };
+        } else {
+          const contact = await db.contact.create({
+            data: { userId: user.id, name: get(row, idx.clientName) || clientEmail.split("@")[0], email: clientEmail, state: "CLIENT", source: "IMPORT" },
+          });
+          contactByEmail.set(clientEmail, { id: contact.id, email: contact.email, state: contact.state });
+          contactsCreated++;
+          client = { id: contact.id, email: clientEmail, created: true };
+        }
+      }
       const collection = await db.collection.create({
         data: {
           userId: user.id,
@@ -142,15 +176,24 @@ export async function POST(req: NextRequest) {
           slug,
           eventDate: eventDateRaw ? new Date(`${eventDateRaw}T12:00:00`) : null,
           folderId,
+          contactId: client?.id ?? null,
           ...data,
           sets: { create: [{ name: "Highlights", order: 0 }] },
         },
       });
-      created.push({ row: rowNum, name: collection.name, slug: collection.slug });
+      created.push({ row: rowNum, name: collection.name, slug: collection.slug, ...(client ? { client: { email: client.email, created: client.created } } : {}) });
     } catch (e) {
       errors.push({ row: rowNum, message: e instanceof Error ? e.message : "Could not create this collection" });
     }
   }
 
-  return NextResponse.json({ ok: true, created, errors, createdCount: created.length, errorCount: errors.length });
+  return NextResponse.json({
+    ok: true,
+    created,
+    errors,
+    createdCount: created.length,
+    errorCount: errors.length,
+    assignedCount: created.filter((c) => c.client).length,
+    contactsCreated,
+  });
 }

@@ -1,9 +1,18 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { getCurrentUser } from "@/lib/auth";
 import { GallerySubnav } from "../subnav";
 import { ApiTokenCard } from "./api-token-card";
 
 export const dynamic = "force-dynamic";
+
+function siteOrigin() {
+  const h = headers();
+  const host = h.get("x-forwarded-host") || h.get("host") || "";
+  if (!host) return "";
+  const proto = h.get("x-forwarded-proto") || (/^(localhost|127\.)/.test(host) ? "http" : "https");
+  return `${proto.split(",")[0].trim()}://${host.split(",")[0].trim()}`;
+}
 
 // Phase 5B platform: the Client Gallery dashboard's Tools page.
 export default async function GalleryToolsPage() {
@@ -32,7 +41,7 @@ export default async function GalleryToolsPage() {
           </div>
         ))}
       </div>
-      <ApiTokenCard hasToken={!!user.apiToken} />
+      <ApiTokenCard hasToken={!!user.apiToken} siteOrigin={siteOrigin()} />
     </div>
   );
 }

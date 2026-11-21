@@ -43,6 +43,30 @@ export const HELP_GUIDES: HelpGuide[] = [
     keywords: "collection upload share publish invite",
   },
   {
+    // Build pack 2026-11-20: Lightroom groundwork. Honest about what exists:
+    // the token API and an export action script, not a Pixora plugin.
+    id: "connect-lightroom",
+    product: "Client Gallery",
+    title: "Connect Lightroom Classic with the upload API",
+    summary:
+      "Send photos from a Lightroom Classic export straight into a collection. A Pixora Lightroom plugin is not available yet, so this uses your personal API token and a small export action script.",
+    steps: [
+      "Open Client Gallery, Tools and choose Create token under Upload API. Copy the token right away, it is only shown once. Only the account Owner can create, rotate or revoke it.",
+      "Test the connection: the Test connection command in Tools (GET /api/v1/me) answers with your account name. A 401 answer means the token is wrong, revoked or was rotated.",
+      "Find the collection to upload into. Its ID is the last part of the address when you open it in the dashboard (/collections/ID), and the list command in Tools shows every collection with its set IDs.",
+      "Copy the Lightroom export action script from Tools into a plain text file, fill in your token and collection ID, save it and make it executable.",
+      "In Lightroom Classic, open File, Export, and under Post-Processing choose After Export, Go to Export Actions Folder Now. Put the script (or an alias to it) in that folder.",
+      "Export as usual (for example JPEG, sRGB, long edge 2048 px) and pick the script under After Export. Lightroom hands it the exported files and the script uploads them one by one.",
+      "Each file goes through the same format, size and plan limits as a dashboard upload. The answer lists every file with its result, so a failed file can be sent again on its own. Photos already in the collection are never replaced.",
+      "Keep the script private, it holds your token. If it leaks, rotate the token in Tools: the old one stops working at once.",
+    ],
+    links: [
+      { href: "/collections/tools", label: "Tools" },
+      { href: "/collections", label: "Collections" },
+    ],
+    keywords: "lightroom classic plugin export api token upload script publish integration",
+  },
+  {
     id: "gallery-privacy",
     product: "Client Gallery",
     title: "Passwords, email registration and private photos",

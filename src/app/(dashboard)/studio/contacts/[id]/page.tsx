@@ -23,19 +23,20 @@ export default async function ContactPage({ params }: { params: { id: string } }
   });
   if (!contact) notFound();
 
-  // Gallery history: collections where this email registered or kept favorite lists.
-  const galleries = contact.email
-    ? await db.collection.findMany({
-        where: {
-          userId: user.id,
-          OR: [
-            { registrations: { some: { email: contact.email } } },
-            { favoriteLists: { some: { clientEmail: contact.email } } },
-          ],
-        },
-        select: { id: true, name: true, slug: true },
-      })
-    : [];
+  // Gallery history: galleries assigned to this client (e.g. by CSV import), plus
+  // collections where this email registered or kept favorite lists.
+  const galleries = await db.collection.findMany({
+    where: {
+      userId: user.id,
+      OR: [
+        { contactId: contact.id },
+        ...(contact.email
+          ? [{ registrations: { some: { email: contact.email } } }, { favoriteLists: { some: { clientEmail: contact.email } } }]
+          : []),
+      ],
+    },
+    select: { id: true, name: true, slug: true },
+  });
 
   return (
     <ContactDetail

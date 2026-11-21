@@ -140,7 +140,7 @@ function videoEmbedUrl(url: string): string {
 export default function GalleryView({ data }: { data: GalleryData }) {
   const router = useRouter();
   // Fix batch 2026-11-20: interface strings follow the gallery language (user content is never translated)
-  const { t } = useMemo(() => galleryT(data.language), [data.language]);
+  const { t, te } = useMemo(() => galleryT(data.language), [data.language]);
   const [lists, setLists] = useState(data.lists);
   const [comments, setComments] = useState(data.comments);
   const [activeSet, setActiveSet] = useState<string | "all">("all");
@@ -202,7 +202,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
     } catch {}
   }
   useEffect(() => setDevice(detectDevice()), []);
-  const storeApi = useGalleryStore(data.slug, data.store);
+  const storeApi = useGalleryStore(data.slug, data.store, data.language);
 
   const viewerEmail = data.viewerEmail;
 
@@ -296,7 +296,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
         );
       } else {
         const err = await res.json().catch(() => ({}));
-        if (err.error) alert(err.error);
+        if (err.error) alert(te(err.error));
       }
     });
   }
@@ -325,7 +325,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      return err.error || t("sendListFailed");
+      return te(err.error, t("sendListFailed"));
     }
     const at = new Date().toISOString();
     setLists((prev) => prev.map((l) => (l.id === listId ? { ...l, submittedAt: at } : l)));
@@ -383,7 +383,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       // Phase 5B platform: phones get the emailed link instead of a ZIP they cannot open.
       if (err.desktopOnly || err.needsEmail) setDlNeedsEmail(true);
       if (Array.isArray(err.parts)) setDlParts(err.parts);
-      setDlError(err.error || t("downloadFailed"));
+      setDlError(te(err.error, t("downloadFailed")));
       return;
     }
     if (opts.email) {
@@ -444,7 +444,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       router.refresh();
     } else {
       const err = await res.json().catch(() => ({}));
-      setGroupError(err.error || t("groupError"));
+      setGroupError(te(err.error, t("groupError")));
     }
   }
 
@@ -461,7 +461,7 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       router.refresh();
     } else {
       const err = await res.json().catch(() => ({}));
-      setExError(err.error || t("unlockFailed"));
+      setExError(te(err.error, t("unlockFailed")));
     }
   }
 

@@ -20,7 +20,11 @@ export default async function CollectionLayout({
   await processExpiryReminders(user.id).catch(() => []);
   const collection = await db.collection.findFirst({
     where: { id: params.id, userId: user.id },
-    include: { _count: { select: { photos: true } }, registrations: { select: { email: true } } },
+    include: {
+      _count: { select: { photos: true } },
+      registrations: { select: { email: true } },
+      contact: { select: { id: true, name: true, email: true } },
+    },
   });
   if (!collection) notFound();
 
@@ -40,6 +44,14 @@ export default async function CollectionLayout({
             {collection._count.photos} photos · /g/{collection.slug} ·{" "}
             <span className="capitalize">{statusLabel}</span>
             {expired ? " · expired (hidden)" : ""}
+            {collection.contact && (
+              <>
+                {" · Client: "}
+                <Link href={`/studio/contacts/${collection.contact.id}`} className="hover:underline" data-testid="collection-client">
+                  {collection.contact.name || collection.contact.email}
+                </Link>
+              </>
+            )}
           </p>
         </div>
         <div className="flex gap-2">

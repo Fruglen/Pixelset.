@@ -24,7 +24,7 @@ export default function GalleryGate({
   optIn?: boolean; // Phase 5B: show the marketing opt in checkbox
 }) {
   const router = useRouter();
-  const { t, tag } = galleryT(lang);
+  const { t, te, tag } = galleryT(lang);
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -51,7 +51,7 @@ export default function GalleryGate({
       }
     } else {
       const data = await res.json().catch(() => ({}));
-      setError(data.error || t("somethingWrong"));
+      setError(te(data.error, t("somethingWrong")));
     }
   }
 

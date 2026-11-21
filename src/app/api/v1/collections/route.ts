@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { userFromBearer } from "@/lib/api-token";
+import { tokenUnauthorized, userFromBearer } from "@/lib/api-token";
 
 // Phase 5B platform: token authenticated API. GET lists collections and sets.
 export async function GET(req: NextRequest) {
   const user = await userFromBearer(req);
-  if (!user) return NextResponse.json({ error: "Invalid or missing API token" }, { status: 401 });
+  if (!user) return tokenUnauthorized();
   const rows = await db.collection.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },

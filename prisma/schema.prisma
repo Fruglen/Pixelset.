@@ -120,6 +120,9 @@ model Collection {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   folderId  String?
   folder    Folder?   @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  // Build pack 2026-11-20: the studio client this gallery belongs to (set by CSV import, or later by hand)
+  contactId String?
+  contact   Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
   name      String
   slug      String    @unique
   eventDate DateTime?
@@ -699,6 +702,7 @@ model Contact {
   contracts Contract[]
   projects  Project[]
   responses QuestionnaireResponse[]
+  collections Collection[]
 }
 
 model ContactNote {
