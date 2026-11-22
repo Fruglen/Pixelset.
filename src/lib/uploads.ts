@@ -3,8 +3,8 @@ import path from "path";
 import { randomBytes } from "crypto";
 import { db } from "./db";
 import { warmRenditions } from "./previews";
+import { makeRawPreviewFromFile } from "./raw-preview";
 import {
-  makeRawPreview,
   makeVideoPoster,
   mediaTypeFor,
   probeVideoDuration,
@@ -139,16 +139,12 @@ export async function ingestFile(opts: {
     }
   } else if (mediaType === "RAW") {
     const previewStored = `${stored.replace(/\.[^.]+$/, "")}-preview.jpg`;
-    const { readFile } = await import("fs/promises");
-    if (await makeRawPreview(await readFile(storedPath), path.join(dir, previewStored))) {
+    const dims = await makeRawPreviewFromFile(storedPath, path.join(dir, previewStored));
+    if (dims) {
       sidecar = previewStored;
       posterUrl = `/uploads/${collectionId}/${previewStored}`;
-      try {
-        const sharp = (await import("sharp")).default;
-        const meta = await sharp(path.join(dir, previewStored)).metadata();
-        width = meta.width ?? null;
-        height = meta.height ?? null;
-      } catch {}
+      width = dims.width;
+      height = dims.height;
     }
   }
 
@@ -302,19 +298,16 @@ export async function finalizeDirectUpload(opts: {
     await mkdir(path.dirname(tmpRaw), { recursive: true });
     try {
       if (await getToFile(key, tmpRaw)) {
-        const sharp = (await import("sharp")).default;
-        try {
-          await sharp(tmpRaw, { limitInputPixels: 300_000_000 })
-            .jpeg({ quality: 85 })
-            .resize(2048, 2048, { fit: "inside", withoutEnlargement: true })
-            .toFile(tmpPreview);
-          const previewKey = key.replace(/\.[^.]+$/, "") + "-preview.jpg";
-          await putFile(previewKey, tmpPreview);
-          posterUrl = storedUrlFor(previewKey);
-          const meta = await sharp(tmpPreview).metadata();
-          width = meta.width ?? null;
-          height = meta.height ?? null;
-        } catch {}
+        const dims = await makeRawPreviewFromFile(tmpRaw, tmpPreview);
+        if (dims) {
+          try {
+            const previewKey = key.replace(/\.[^.]+$/, "") + "-preview.jpg";
+            await putFile(previewKey, tmpPreview);
+            posterUrl = storedUrlFor(previewKey);
+            width = dims.width;
+            height = dims.height;
+          } catch {}
+        }
       }
     } finally {
       await rm(tmpRaw, { force: true });

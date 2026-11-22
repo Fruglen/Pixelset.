@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { photoWatermarked } from "@/lib/watermark";
 import { clampQuality, previewRendition, renditionCached, renditionWidth } from "@/lib/previews";
+import { ensureRawPreview } from "@/lib/raw-preview";
 
 export const runtime = "nodejs";
 
@@ -18,7 +19,9 @@ export async function GET(req: NextRequest, { params }: { params: { photoId: str
   if (photoWatermarked(photo.collection.watermark, photo.watermarkMode)) {
     return NextResponse.redirect(new URL(`/api/wm/${photo.id}?w=${asked}`, req.url), 302);
   }
-  const src = photo.mediaType === "RAW" ? photo.posterUrl : photo.url;
+  let src = photo.mediaType === "RAW" ? photo.posterUrl : photo.url;
+  // RAW uploaded before embedded JPEG extraction: build its preview now.
+  if (photo.mediaType === "RAW" && !src) src = await ensureRawPreview(photo);
   if (!src) return NextResponse.json({ error: "No preview" }, { status: 404 });
   if (/\.gif$/i.test(src)) return NextResponse.redirect(new URL(src, req.url), 302);
   const user = photo.collection.user;

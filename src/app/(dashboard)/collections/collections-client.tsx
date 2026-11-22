@@ -225,9 +225,9 @@ export default function CollectionsClient({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="font-display text-2xl">{t("nav_clientGallery")}</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link href="/collections/presets" className="btn-secondary">
             {t("viewPresets")}
           </Link>
@@ -277,9 +277,9 @@ export default function CollectionsClient({
       )}
       {bulkNote && <p className="text-sm text-neutral-600 mb-5">{bulkNote}</p>}
 
-      <div className="flex gap-8">
+      <div className="flex flex-col md:flex-row gap-8">
         {/* Folders */}
-        <aside className="w-48 shrink-0">
+        <aside className="w-full md:w-48 shrink-0">
           <p className="label">{t("folders")}</p>
           <button
             onClick={() => setActiveFolder("all")}
@@ -367,7 +367,7 @@ export default function CollectionsClient({
         </aside>
 
         {/* Collection grid */}
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           {visible.length === 0 ? (
             <EmptyState icon={GalleryIcon} line={t("emptyCollections")}>
               <button className="btn-primary mt-5" onClick={() => setShowCreate(true)}>
@@ -375,7 +375,7 @@ export default function CollectionsClient({
               </button>
             </EmptyState>
           ) : (
-            <div className="grid grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {visible.map((c) => (
                 <div key={c.id} className="card overflow-hidden group relative">
                   <label

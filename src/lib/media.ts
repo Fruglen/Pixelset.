@@ -1,6 +1,10 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
+import os from "os";
+import { randomBytes } from "crypto";
+import { rm, writeFile } from "fs/promises";
+import { makeRawPreviewFromFile } from "./raw-preview";
 
 const execFileAsync = promisify(execFile);
 
@@ -78,22 +82,25 @@ export async function makeVideoPoster(videoPath: string, posterPath: string): Pr
   return false;
 }
 
+export { makeRawPreviewFromFile };
+
 /**
- * Try to produce a JPEG preview for a RAW file. sharp/libvips reads some
- * TIFF-based RAW containers (notably DNG); most vendor formats need dcraw,
- * which is not installed here, so this usually returns false and the UI shows
- * the honest RAW badge tile instead.
+ * Produce a JPEG preview for a RAW file held in memory. The primary path is
+ * extracting the largest JPEG the camera embedded in the RAW file (works for
+ * Canon, Nikon, Sony, Fuji, Olympus, Panasonic and DNG). Decoding the file
+ * with sharp is only the fallback. Returns false when neither works, and the
+ * UI then shows the RAW badge tile. Prefer makeRawPreviewFromFile for files
+ * already on disk, it never loads the whole file into memory.
  */
 export async function makeRawPreview(buffer: Buffer, previewPath: string): Promise<boolean> {
+  const tmp = path.join(os.tmpdir(), `pixora-raw-${randomBytes(6).toString("hex")}`);
   try {
-    const sharp = (await import("sharp")).default;
-    await sharp(buffer, { limitInputPixels: 300_000_000 })
-      .jpeg({ quality: 85 })
-      .resize(2048, 2048, { fit: "inside", withoutEnlargement: true })
-      .toFile(previewPath);
-    return true;
+    await writeFile(tmp, buffer);
+    return (await makeRawPreviewFromFile(tmp, previewPath)) !== null;
   } catch {
     return false;
+  } finally {
+    await rm(tmp, { force: true }).catch(() => undefined);
   }
 }
 

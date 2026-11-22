@@ -51,7 +51,7 @@ export default async function PhotosTab({ params }: { params: { id: string } }) 
           isPrivate: p.isPrivate,
           isExternal: p.isExternal,
           mediaType: p.mediaType,
-          posterUrl: p.posterUrl,
+          posterUrl: p.posterUrl || (p.mediaType === "RAW" ? `/api/preview/${p.id}?w=640` : p.posterUrl),
           durationSec: p.durationSec,
           fileSize: p.fileSize,
           starred: p.starred,

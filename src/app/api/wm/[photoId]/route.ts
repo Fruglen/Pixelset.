@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { watermarkFromUser, watermarkedPreview } from "@/lib/watermark";
 import { clampQuality, renditionWidth } from "@/lib/previews";
+import { ensureRawPreview } from "@/lib/raw-preview";
 
 export const runtime = "nodejs";
 
@@ -20,7 +21,9 @@ export async function GET(req: NextRequest, { params }: { params: { photoId: str
   const width = renditionWidth(asked, photo.collection.user.previewSize);
   const quality = clampQuality(photo.collection.user.previewQuality);
   const s = watermarkFromUser(photo.collection.user);
-  const src = photo.mediaType === "RAW" ? photo.posterUrl : photo.url;
+  let src = photo.mediaType === "RAW" ? photo.posterUrl : photo.url;
+  // RAW uploaded before embedded JPEG extraction: build its preview now.
+  if (photo.mediaType === "RAW" && !src) src = await ensureRawPreview(photo);
   if (!src) return NextResponse.json({ error: "No preview" }, { status: 404 });
   const out = await watermarkedPreview({ id: photo.id, url: src, isExternal: photo.isExternal && photo.mediaType === "IMAGE" }, s, width, quality);
   if (!out) return NextResponse.json({ error: "Could not render the preview" }, { status: 502 });

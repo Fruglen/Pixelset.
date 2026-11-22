@@ -187,7 +187,7 @@ export default async function GalleryPage({
           isPrivate: p.isPrivate,
           mediaType: p.mediaType,
           durationSec: p.durationSec,
-          posterUrl: p.posterUrl,
+          posterUrl: p.posterUrl || (p.mediaType === "RAW" ? `/api/preview/${p.id}?w=1024` : p.posterUrl),
           fileSize: p.fileSize,
           starred: p.starred,
           // Phase 5B: watermark rendered into the preview image server side
@@ -214,7 +214,7 @@ export default async function GalleryPage({
               isPrivate: p.isPrivate,
               mediaType: p.mediaType,
               durationSec: p.durationSec,
-              posterUrl: p.posterUrl,
+              posterUrl: p.posterUrl || (p.mediaType === "RAW" ? `/api/preview/${p.id}?w=1024` : p.posterUrl),
               fileSize: p.fileSize,
               starred: p.starred,
               wm: false,
