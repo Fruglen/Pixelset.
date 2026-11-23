@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { syncBookingToGoogle } from "@/lib/google-calendar";
 
 const STATUSES = ["PENDING", "AWAITING_CLIENT", "CONFIRMED", "CANCELLED", "WAITLIST", "COMPLETED"];
@@ -16,6 +17,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const booking = await own(params.id);
   if (!booking) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const body = await req.json();
+  // Compare against the stored values so a client echoing unchanged fields
+  // (for example while saving notes) is not refused.
+  if (PAY_STATUSES.includes(body.paymentStatus) && body.paymentStatus !== booking.paymentStatus) {
+    const denied = await permissionError("payments");
+    if (denied) return NextResponse.json({ error: denied }, { status: 403 });
+  }
+  if (STATUSES.includes(body.status) && body.status !== booking.status) {
+    const denied = await permissionError("send_documents");
+    if (denied) return NextResponse.json({ error: denied }, { status: 403 });
+  }
   const data: Record<string, unknown> = {};
   if (STATUSES.includes(body.status)) data.status = body.status;
   if (PAY_STATUSES.includes(body.paymentStatus)) data.paymentStatus = body.paymentStatus;
@@ -60,6 +71,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const booking = await own(params.id);
   if (!booking) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const denied = await permissionError("delete");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   await db.booking.delete({ where: { id: booking.id } });
   return NextResponse.json({ ok: true });
 }

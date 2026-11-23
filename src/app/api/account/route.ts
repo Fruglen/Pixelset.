@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, hashPassword, verifyPassword } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 
 export async function PATCH(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("settings");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const body = await req.json();
   const data: Record<string, unknown> = {};
   if (typeof body.name === "string" && body.name.trim()) data.name = body.name.trim();

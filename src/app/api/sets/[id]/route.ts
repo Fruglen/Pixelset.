@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 
 async function ownedSet(id: string) {
   const user = await getCurrentUser();
@@ -27,6 +28,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const set = await ownedSet(params.id);
   if (!set) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const denied = await permissionError("delete");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   await db.photoSet.delete({ where: { id: set.id } });
   return NextResponse.json({ ok: true });
 }

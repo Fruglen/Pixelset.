@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 
 async function own(id: string) {
   const user = await getCurrentUser();
@@ -11,6 +12,8 @@ async function own(id: string) {
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const link = await own(params.id);
   if (!link) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const denied = await permissionError("payments");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const body = await req.json();
   const data: Record<string, unknown> = {};
   if (typeof body.active === "boolean") data.active = body.active;
@@ -23,6 +26,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const link = await own(params.id);
   if (!link) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const denied = await permissionError("delete");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   await db.paymentLink.delete({ where: { id: link.id } });
   return NextResponse.json({ ok: true });
 }

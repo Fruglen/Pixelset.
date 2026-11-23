@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { stripeConnectUrl } from "@/lib/processors";
 
 // Night build: begin Stripe Connect onboarding for the photographer's own
@@ -8,6 +9,8 @@ import { stripeConnectUrl } from "@/lib/processors";
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("settings");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const origin = process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin;
   const url = stripeConnectUrl(randomBytes(12).toString("hex"), `${origin}/api/studio/payments/connect/callback`);
   if (!url) {

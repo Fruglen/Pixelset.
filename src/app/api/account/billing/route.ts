@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import {
   cancelSubscription,
   getBillingState,
@@ -50,6 +51,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("settings");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const action = typeof body.action === "string" ? body.action : "";
   try {

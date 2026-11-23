@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { createLabOrder } from "@/lib/lab";
 import { notify } from "@/lib/notify";
 
@@ -13,6 +14,8 @@ import { notify } from "@/lib/notify";
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("manage_store");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const order = await db.order.findFirst({ where: { id: params.id, userId: user.id } });
   if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
 

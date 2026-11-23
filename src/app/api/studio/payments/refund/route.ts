@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { db } from "@/lib/db";
 import { fmtMoney, logStudioMessage } from "@/lib/studio";
 import { notify } from "@/lib/notify";
@@ -13,6 +14,8 @@ import { notify } from "@/lib/notify";
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("payments");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const body = await req.json();
   const kind = body.kind === "invoice" ? "invoice" : "ledger";
   const id = String(body.id ?? body.paymentId ?? "");

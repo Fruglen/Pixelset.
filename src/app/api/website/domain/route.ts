@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { db } from "@/lib/db";
 import { checkDomainDns, isValidDomain, newDomainToken, normalizeDomain } from "@/lib/site-domains";
 import { WEBSITE_LIMITS, planFor, tierLabel } from "@/lib/plans";
@@ -14,6 +15,8 @@ async function own() {
 export async function POST(req: NextRequest) {
   const website = await own();
   if (!website) return NextResponse.json({ error: "No website" }, { status: 404 });
+  const denied = await permissionError("settings");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const body = await req.json().catch(() => ({}));
 
   if (body.action === "remove") {

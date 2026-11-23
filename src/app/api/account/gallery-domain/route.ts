@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { checkDomainDns, isValidDomain, normalizeDomain } from "@/lib/site-domains";
 import { galleryDomainToken } from "@/lib/gallery-domain";
 import { GALLERY_LIMITS, parsePlan, tierLabel } from "@/lib/plans";
@@ -11,6 +12,8 @@ import { GALLERY_LIMITS, parsePlan, tierLabel } from "@/lib/plans";
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("settings");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const body = await req.json().catch(() => ({}));
   const domain = normalizeDomain(typeof body.domain === "string" ? body.domain : user.galleryDomain);
   if (!domain) {

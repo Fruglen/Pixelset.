@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { ipAllowlistFor, setIpAllowlist } from "@/lib/ip-guard";
 import { planFor } from "@/lib/plans";
 
@@ -20,6 +21,8 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("settings");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const plan = await planFor(user.id);
   if (!plan.billing.volume) {
     return NextResponse.json(

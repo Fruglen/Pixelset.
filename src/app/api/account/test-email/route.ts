@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { resendConnected, sendMail } from "@/lib/mailer";
 
 // Phase 5A, "Send test email" button in Settings. Sends to the account email
@@ -7,6 +8,8 @@ import { resendConnected, sendMail } from "@/lib/mailer";
 export async function POST() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("settings");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   if (!resendConnected()) {
     return NextResponse.json(
       { error: "Resend is not connected. Set RESEND_API_KEY in the environment to enable email sending." },

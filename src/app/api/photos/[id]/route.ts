@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { deleteStored, isStoredUrl } from "@/lib/storage";
 
 async function ownedPhoto(id: string) {
@@ -39,6 +40,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const photo = await ownedPhoto(params.id);
   if (!photo) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const denied = await permissionError("delete");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   await db.photo.delete({ where: { id: photo.id } });
   if (!photo.isExternal && isStoredUrl(photo.url)) {
     await deleteStored(photo.url);

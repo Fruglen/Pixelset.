@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import sharp from "sharp";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { validHex } from "@/lib/brand";
 import { FONT_PAIRINGS } from "@/lib/design";
 import { saveStoredBuffer } from "@/lib/storage";
@@ -11,6 +12,8 @@ import { saveStoredBuffer } from "@/lib/storage";
 export async function PATCH(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("settings");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const body = await req.json().catch(() => ({}));
   const data: Record<string, string> = {};
   for (const k of ["brandColor", "brandAccent"] as const) {
@@ -35,6 +38,8 @@ export async function PATCH(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("settings");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
   if (!file || typeof file === "string") return NextResponse.json({ error: "Choose a logo file" }, { status: 400 });

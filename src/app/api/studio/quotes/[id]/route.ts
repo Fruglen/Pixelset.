@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { logStudioMessage, parseItems, parseQuoteItems } from "@/lib/studio";
 import { absoluteUrl, deliveryNote, sendMail } from "@/lib/mailer";
 
@@ -75,6 +76,8 @@ ${businessName}`,
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await own(params.id);
   if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const denied = await permissionError("delete");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   await db.quote.delete({ where: { id: ctx.quote.id } });
   return NextResponse.json({ ok: true });
 }

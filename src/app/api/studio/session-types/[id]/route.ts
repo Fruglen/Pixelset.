@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { parseAvailability } from "@/lib/availability";
 import { STUDIO_LIMITS, planFor, tierLabel } from "@/lib/plans";
 
@@ -79,6 +80,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await own(params.id);
   if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const denied = await permissionError("delete");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   await db.sessionType.delete({ where: { id: ctx.st.id } });
   return NextResponse.json({ ok: true });
 }

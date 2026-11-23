@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { applyWatermark, watermarkFromUser } from "@/lib/watermark";
 import { deleteStored, saveStoredBuffer } from "@/lib/storage";
 
@@ -13,6 +14,8 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("settings");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const form = await req.formData();
   const file = form.get("file");
   if (!(file instanceof File) || !/^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type)) {

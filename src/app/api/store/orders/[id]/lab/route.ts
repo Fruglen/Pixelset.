@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 
 // Phase 5A, lab order actions on a store order (create / send / reprint /
 // setStatus) — PARKED behind Coming Soon (owner's call, Nov 19, 2026).
@@ -12,6 +13,8 @@ import { getCurrentUser } from "@/lib/auth";
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("manage_store");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const order = await db.order.findFirst({ where: { id: params.id, userId: user.id } });
   if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
   void req;

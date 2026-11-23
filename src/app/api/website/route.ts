@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { slugify } from "@/lib/utils";
 import { createWebsiteForUser } from "@/lib/site-service";
 import { SITE_PALETTES, SITE_FONT_THEMES, HEADER_STYLES, SPACING_OPTIONS, BUTTON_SHAPES, ARROW_STYLES } from "@/lib/website";
@@ -83,6 +84,8 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("delete");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const website = await db.website.findUnique({ where: { userId: user.id } });
   if (!website) return NextResponse.json({ error: "No website" }, { status: 404 });
   await db.website.delete({ where: { id: website.id } });

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { getStudioProfile } from "@/lib/studio";
 
 // Disconnect Google Calendar: forget the stored token and busy cache and
@@ -9,6 +10,8 @@ import { getStudioProfile } from "@/lib/studio";
 export async function POST() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("settings");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const profile = await getStudioProfile(user.id);
   await db.studioProfile.update({
     where: { id: profile.id },

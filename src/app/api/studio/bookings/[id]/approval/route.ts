@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { logStudioMessage } from "@/lib/studio";
 import { syncBookingToGoogle } from "@/lib/google-calendar";
 import { sendBookingConfirmation, sendStudioEmail, sessionDateLabel } from "@/lib/studio-flow";
@@ -14,6 +15,8 @@ import { absoluteUrl } from "@/lib/mailer";
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("send_documents");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   const b = await db.booking.findFirst({
     where: { id: params.id, userId: user.id },
     include: { contact: true, contract: true, response: true, sessionType: { select: { questionnaireId: true } } },

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { planSwitchAllowed } from "@/lib/billing";
 import { GALLERY_TIERS, STUDIO_TIERS, WEBSITE_TIERS, parsePlan, serializePlan } from "@/lib/plans";
 
@@ -17,6 +18,8 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const denied = await permissionError("settings");
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   if (!planSwitchAllowed()) {
     return NextResponse.json({ error: "Plan changes are not available on this server." }, { status: 403 });
   }

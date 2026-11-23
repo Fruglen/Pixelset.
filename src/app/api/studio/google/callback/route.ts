@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { permissionError } from "@/lib/team";
 import { getStudioProfile } from "@/lib/studio";
 import { exchangeGoogleCode, googleEmailFor, syncAllBookingsToGoogle } from "@/lib/google-calendar";
 
@@ -11,6 +12,7 @@ export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.redirect(new URL("/login", req.url));
   const back = (note: string) => NextResponse.redirect(new URL(`/studio/settings?google=${note}`, req.url));
+  if (await permissionError("settings")) return back("error");
 
   const code = req.nextUrl.searchParams.get("code") ?? "";
   const state = req.nextUrl.searchParams.get("state") ?? "";
