@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { readGalleryAccess, writeGalleryAccess } from "@/lib/gallery-auth";
 import { logActivity } from "@/lib/activity";
 import { upsertContact } from "@/lib/contact-sync";
+import { rateLimitKey, recordFailure, retryAfterSeconds, tooManyAttempts } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
   const collection = await db.collection.findUnique({
@@ -15,12 +16,25 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
   const mode = body.mode as string;
   const access = readGalleryAccess(collection.id);
 
+  // GLE-118: password, access code, and exclusive-set attempts share one key
+  // per IP + gallery. Check and record run with no await between them.
+  // A success here deliberately does NOT clear earlier failures: a gallery has
+  // several credentials, so someone holding one valid code could otherwise
+  // reset the counter between guesses at the others. Failures age out instead.
+  const attemptKey = rateLimitKey("gallery-unlock", req.headers, collection.id);
+
   if (mode === "password") {
-    if (typeof body.password !== "string" || body.password !== collection.password) {
-      // Phase 5B platform: an access group code also opens a protected gallery.
-      const code = typeof body.password === "string" ? body.password.trim() : "";
-      const group = code ? await db.accessGroup.findFirst({ where: { collectionId: collection.id, code } }) : null;
-      if (!group) return NextResponse.json({ error: "Incorrect password" }, { status: 401 });
+    const passwordOk = typeof body.password === "string" && body.password === collection.password;
+    // Phase 5B platform: an access group code also opens a protected gallery.
+    const code = !passwordOk && typeof body.password === "string" ? body.password.trim() : "";
+    const group = code ? await db.accessGroup.findFirst({ where: { collectionId: collection.id, code } }) : null;
+    const retryAfter = retryAfterSeconds(attemptKey);
+    if (retryAfter > 0) return tooManyAttempts(retryAfter);
+    if (!passwordOk) {
+      if (!group) {
+        recordFailure(attemptKey);
+        return NextResponse.json({ error: "Incorrect password" }, { status: 401 });
+      }
       const sets = Array.from(new Set([...access.sets, ...group.setIds.split(",").filter(Boolean)]));
       writeGalleryAccess(collection.id, { ...access, pw: true, sets, group: group.id });
       await logActivity(collection.id, "ACCESS_GROUP", `Entered as ${group.name}`, access.email);
@@ -70,10 +84,13 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
   if (mode === "exclusive") {
     const email = typeof body.email === "string" ? body.email.toLowerCase().trim() : "";
     const password = typeof body.password === "string" ? body.password : "";
+    const retryAfter = retryAfterSeconds(attemptKey);
+    if (retryAfter > 0) return tooManyAttempts(retryAfter);
     const matching = collection.sets.filter(
       (s) => s.clientExclusive && s.clientEmail === email && s.clientPassword === password
     );
     if (matching.length === 0) {
+      recordFailure(attemptKey);
       return NextResponse.json({ error: "No exclusive sets match that email and password" }, { status: 401 });
     }
     const sets = Array.from(new Set([...access.sets, ...matching.map((s) => s.id)]));
@@ -87,7 +104,12 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
     const group = code
       ? await db.accessGroup.findFirst({ where: { collectionId: collection.id, code } })
       : null;
-    if (!group) return NextResponse.json({ error: "That access code is not valid for this gallery" }, { status: 401 });
+    const retryAfter = retryAfterSeconds(attemptKey);
+    if (retryAfter > 0) return tooManyAttempts(retryAfter);
+    if (!group) {
+      recordFailure(attemptKey);
+      return NextResponse.json({ error: "That access code is not valid for this gallery" }, { status: 401 });
+    }
     const groupSets = group.setIds.split(",").filter(Boolean);
     const sets = Array.from(new Set([...access.sets, ...groupSets]));
     writeGalleryAccess(collection.id, { ...access, pw: true, sets, group: group.id });

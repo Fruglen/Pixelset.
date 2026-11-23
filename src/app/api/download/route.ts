@@ -10,6 +10,7 @@ import { contentTypeFor } from "@/lib/media";
 import { watermarkFromUser } from "@/lib/watermark";
 import { buildZip, renderDownload, runDownloadJob, splitParts, type DownloadPhoto, type RenderOpts } from "@/lib/zip";
 import { GALLERY_LIMITS, parsePlan } from "@/lib/plans";
+import { clearFailures, rateLimitKey, recordFailure, retryAfterSeconds, tooManyAttempts } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -96,7 +97,17 @@ export async function GET(req: NextRequest) {
 
   let pinUnlocked = false;
   if ((collection.pinEnabled || collection.clientOnlyDownloads) && collection.downloadPin && !isOwner) {
-    if (!pin || pin !== collection.downloadPin) return err("Incorrect download PIN", 401);
+    // GLE-118: only a PIN actually submitted counts. The first click carries no
+    // PIN and must not burn an attempt. No await between check and record.
+    if (!pin) return err("Incorrect download PIN", 401);
+    const pinKey = rateLimitKey("download-pin", req.headers, collection.id);
+    const retryAfter = retryAfterSeconds(pinKey);
+    if (retryAfter > 0) return tooManyAttempts(retryAfter);
+    if (pin !== collection.downloadPin) {
+      recordFailure(pinKey);
+      return err("Incorrect download PIN", 401);
+    }
+    clearFailures(pinKey);
     if (collection.pinUseLimit !== null && collection.pinUseCount >= collection.pinUseLimit) {
       return err("This download PIN has reached its use limit", 403);
     }
