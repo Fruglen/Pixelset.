@@ -55,6 +55,11 @@ const HEIGHTS: Record<string, string> = {
 const ALIGNS: Record<string, string> = { left: "text-left", center: "text-center", right: "text-right" };
 const COLS: Record<string, string> = { "1": "md:grid-cols-1", "2": "md:grid-cols-2", "3": "md:grid-cols-3", "4": "md:grid-cols-4" };
 
+// GLE-115: public website blocks show renditions, never a photo's original file.
+function photoRenditionSrc(photo: { id: string; mediaType: string; posterUrl: string }): string {
+  return photo.mediaType === "VIDEO" ? photo.posterUrl : `/api/preview/${photo.id}?w=1024`;
+}
+
 function videoEmbedUrl(url: string): string | null {
   const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{6,})/);
   if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
@@ -343,7 +348,7 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
         <Section>
           <div className={`grid grid-cols-2 ${COLS[s(p.cols, "3")] ?? COLS["3"]} gap-4`}>
             {photos.map((ph) => (
-              <img key={ph.id} src={ph.url} alt={`${collection.name} photograph`} className="w-full aspect-[4/5] object-cover" />
+              <img key={ph.id} src={photoRenditionSrc(ph)} alt={`${collection.name} photograph`} className="w-full aspect-[4/5] object-cover" />
             ))}
           </div>
           {flag(p.link, true) ? (
@@ -734,7 +739,7 @@ export async function RenderBlock({ block, ctx }: { block: Block; ctx: SiteCtx }
           id: c.id,
           name: c.name,
           href: `/g/${c.slug}`,
-          cover: flag(p.showCovers, true) ? c.coverImageUrl || cover?.url || "" : "",
+          cover: flag(p.showCovers, true) ? c.coverImageUrl || (cover ? photoRenditionSrc(cover) : "") : "",
           date: c.eventDate ? formatDate(c.eventDate) : "",
           gates,
         };

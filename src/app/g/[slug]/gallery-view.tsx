@@ -29,6 +29,8 @@ function displaySrc(p: GalleryPhoto, width = 1600): string {
   const w = p.maxW ? Math.min(width, p.maxW) : width;
   if (p.wm && (p.mediaType === "IMAGE" || p.posterUrl)) return `/api/wm/${p.id}?w=${w}${p.pv ? `&v=${p.pv}` : ""}`;
   // Phase 5B platform: sized, photographer controlled preview renditions (GIFs keep their animation).
+  // GLE-115: a Quick Share rendition URL carries its token, keep it intact.
+  if (p.mediaType === "IMAGE" && p.url.includes("qs=")) return p.url;
   if (p.mediaType === "IMAGE" && p.pv && p.url && !/\.gif$/i.test(p.url)) return `/api/preview/${p.id}?w=${w}&v=${p.pv}`;
   if (p.mediaType === "IMAGE") return p.url;
   return p.posterUrl;
@@ -529,7 +531,8 @@ export default function GalleryView({ data }: { data: GalleryData }) {
         .filter((cm) => cm.photoId === current.id)
         .sort((a, b) => (a.timecodeSec ?? -1) - (b.timecodeSec ?? -1) || a.createdAt.localeCompare(b.createdAt))
     : [];
-  const currentIsVideo = current?.mediaType === "VIDEO";
+  // Visitors see a poster, so there is no playhead to pin a comment to (GLE-115).
+  const currentIsVideo = current?.mediaType === "VIDEO" && !!current.url;
   function seekTo(sec: number) {
     const v = videoRef.current;
     if (!v) return;
@@ -742,7 +745,15 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       {current && (
         <div className="fixed inset-0 z-50 bg-black/95 flex">
           <div className="flex-1 relative flex items-center justify-center p-6">
-            {current.mediaType === "VIDEO" ? (
+            {current.mediaType === "VIDEO" && !current.url ? (
+              // GLE-115: visitors get the poster, the original video URL is owner only.
+              current.posterUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={current.posterUrl} alt={current.filename} className="max-h-full max-w-full object-contain" data-testid="lightbox-video-poster" />
+              ) : (
+                <span className="inline-block text-xs tracking-widest uppercase border border-white/50 text-white/80 px-3 py-1 rounded">{t("video")}</span>
+              )
+            ) : current.mediaType === "VIDEO" ? (
               <video
                 key={current.id}
                 ref={videoRef}
@@ -1374,15 +1385,23 @@ function GridItem({
     >
       {photo.mediaType === "VIDEO" ? (
         <div className={vertical ? "" : "aspect-[3/2]"}>
-          <video
-            src={photo.url}
-            poster={photo.posterUrl || undefined}
-            controls
-            preload="metadata"
-            playsInline
-            className={`w-full ${vertical ? "" : "h-full object-cover"}`}
-            onClick={(e) => e.stopPropagation()}
-          />
+          {photo.url ? (
+            <video
+              src={photo.url}
+              poster={photo.posterUrl || undefined}
+              controls
+              preload="metadata"
+              playsInline
+              className={`w-full ${vertical ? "" : "h-full object-cover"}`}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : photo.posterUrl ? (
+            // GLE-115: visitors get the poster, the original video URL is owner only.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photo.posterUrl} alt={photo.filename} loading="lazy" className={`w-full ${vertical ? "" : "h-full object-cover"}`} />
+          ) : (
+            <div className="w-full h-full min-h-32" style={{ background: "var(--g-muted)" }} />
+          )}
           <span className="absolute top-2 left-2 text-[10px] tracking-wide uppercase bg-black/60 text-white px-1.5 py-0.5 rounded pointer-events-none">
             {t("video")}{photo.durationSec ? ` · ${formatDuration(photo.durationSec)}` : ""}
           </span>

@@ -23,7 +23,13 @@ export async function GET(req: NextRequest, { params }: { params: { photoId: str
   // RAW uploaded before embedded JPEG extraction: build its preview now.
   if (photo.mediaType === "RAW" && !src) src = await ensureRawPreview(photo);
   if (!src) return NextResponse.json({ error: "No preview" }, { status: 404 });
-  if (/\.gif$/i.test(src)) return NextResponse.redirect(new URL(src, req.url), 302);
+  if (/\.gif$/i.test(src)) {
+    // GLE-115: /media checks entitlement, so a Quick Share token must survive the redirect.
+    const target = new URL(src, req.url);
+    const qs = req.nextUrl.searchParams.get("qs");
+    if (qs) target.searchParams.set("qs", qs);
+    return NextResponse.redirect(target, 302);
+  }
   const user = photo.collection.user;
   const width = renditionWidth(asked, user.previewSize);
   const quality = clampQuality(user.previewQuality);

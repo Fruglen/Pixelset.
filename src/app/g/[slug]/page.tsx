@@ -2,9 +2,8 @@ import { notFound } from "next/navigation";
 import { galleryT } from "@/lib/gallery-i18n";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { readGalleryAccess } from "@/lib/gallery-auth";
+import { galleryGate, readGalleryAccess } from "@/lib/gallery-auth";
 import { paletteById, fontById } from "@/lib/design";
-import { isExpired } from "@/lib/utils";
 import { brandFor } from "@/lib/brand";
 import { photoWatermarked } from "@/lib/watermark";
 import GalleryGate from "./gallery-gate";
@@ -79,19 +78,19 @@ export default async function GalleryPage({
     }
   }
 
-  const expired = isExpired(collection.expiresAt);
-
   if (!quickPhotoIds) {
     // Status gates (owner always previews)
+    // One access decision, shared with the /media route (GLE-115).
+    const gate = isOwner ? null : galleryGate(collection, readGalleryAccess(collection.id));
     if (!isOwner) {
-      if (collection.status === "DRAFT") {
+      if (gate === "draft") {
         return (
           <GateShell themeVars={themeVars} brand={brand} lang={langTag}>
             <p className="text-sm opacity-70">{t("notAvailable")}</p>
           </GateShell>
         );
       }
-      if (expired) {
+      if (gate === "expired") {
         return (
           <GateShell themeVars={themeVars} brand={brand} lang={langTag}>
             <h1 className="gallery-display text-3xl mb-3">{collection.name}</h1>
@@ -99,7 +98,7 @@ export default async function GalleryPage({
           </GateShell>
         );
       }
-      if (collection.status === "PRERELEASE") {
+      if (gate === "prerelease") {
         return (
           <GalleryGate
             mode="prerelease"
@@ -114,9 +113,7 @@ export default async function GalleryPage({
       }
     }
 
-    const access = readGalleryAccess(collection.id);
-
-    if (!isOwner && collection.password && !access.pw) {
+    if (gate === "password") {
       return (
         <GalleryGate
           mode="password"
@@ -129,7 +126,7 @@ export default async function GalleryPage({
         />
       );
     }
-    if (!isOwner && collection.emailRegistration && !access.email) {
+    if (gate === "email") {
       return (
         <GalleryGate
           mode="email"
@@ -159,6 +156,24 @@ export default async function GalleryPage({
   // Preview renditions: the photographer's preview size and quality (cache key).
   const pv = `${collection.user.previewSize}-${collection.user.previewQuality}`;
 
+  // GLE-115: what a non-owner receives instead of the original. Quick Share
+  // visitors have no access cookie, so their token travels on the URL.
+  const qsParam = quickPhotoIds && qsToken ? `qs=${encodeURIComponent(qsToken)}` : "";
+  const visitorUrl = (p: { id: string; mediaType: string }, wm: boolean) => {
+    if (p.mediaType !== "IMAGE") return "";
+    if (wm) return `/api/wm/${p.id}?w=2048&v=${pv}`;
+    return `/api/preview/${p.id}?w=2048&v=${pv}${qsParam ? `&${qsParam}` : ""}`;
+  };
+  // Only for photos that passed the set filters below. The cover fallback loads
+  // a photo outside those filters, so it must keep using visitorUrl.
+  const entitledVideoUrl = (p: { url: string }) =>
+    qsParam && p.url.startsWith("/media/") ? `${p.url}?${qsParam}` : p.url;
+  const visitorPoster = (p: { id: string; mediaType: string; posterUrl: string }) => {
+    if (p.mediaType === "RAW") return `/api/preview/${p.id}?w=1024`;
+    if (!p.posterUrl) return "";
+    return qsParam && p.posterUrl.startsWith("/media/") ? `${p.posterUrl}?${qsParam}` : p.posterUrl;
+  };
+
   // Build visible photo data
   const hasExclusiveSets = collection.sets.some((s) => s.clientExclusive);
   const sets = collection.sets
@@ -179,15 +194,18 @@ export default async function GalleryPage({
           const wm = p.mediaType !== "VIDEO" && photoWatermarked(collection.watermark, p.watermarkMode);
           return {
           id: p.id,
-          // Watermarked images never send the clean file URL to the browser.
-          url: wm && !isOwner && p.mediaType === "IMAGE" ? "" : p.url,
+          // GLE-115: visitors get the original only for videos they may view.
+          // Image and RAW entries stay rendition URLs.
+          url: isOwner ? p.url : p.mediaType === "VIDEO" ? entitledVideoUrl(p) : visitorUrl(p, wm),
           filename: p.filename,
           width: p.width,
           height: p.height,
           isPrivate: p.isPrivate,
           mediaType: p.mediaType,
           durationSec: p.durationSec,
-          posterUrl: p.posterUrl || (p.mediaType === "RAW" ? `/api/preview/${p.id}?w=1024` : p.posterUrl),
+          posterUrl: isOwner
+            ? p.posterUrl || (p.mediaType === "RAW" ? `/api/preview/${p.id}?w=1024` : p.posterUrl)
+            : visitorPoster(p),
           fileSize: p.fileSize,
           starred: p.starred,
           // Phase 5B: watermark rendered into the preview image server side
@@ -207,17 +225,19 @@ export default async function GalleryPage({
         p
           ? {
               id: p.id,
-              url: p.url,
+              url: isOwner ? p.url : visitorUrl(p, p.mediaType !== "VIDEO" && photoWatermarked(collection.watermark, p.watermarkMode)),
               filename: p.filename,
               width: p.width,
               height: p.height,
               isPrivate: p.isPrivate,
               mediaType: p.mediaType,
               durationSec: p.durationSec,
-              posterUrl: p.posterUrl || (p.mediaType === "RAW" ? `/api/preview/${p.id}?w=1024` : p.posterUrl),
+              posterUrl: isOwner
+                ? p.posterUrl || (p.mediaType === "RAW" ? `/api/preview/${p.id}?w=1024` : p.posterUrl)
+                : visitorPoster(p),
               fileSize: p.fileSize,
               starred: p.starred,
-              wm: false,
+              wm: !isOwner && p.mediaType !== "VIDEO" && photoWatermarked(collection.watermark, p.watermarkMode),
               pv,
               maxW: collection.user.previewSize,
             }
@@ -310,11 +330,12 @@ export default async function GalleryPage({
     coverUrl: collection.coverImageUrl
       ? collection.coverImageUrl
       : coverPhoto?.mediaType === "VIDEO"
-        ? coverPhoto.url
+        ? (isOwner ? coverPhoto.url : coverPhoto.posterUrl)
         : coverPhoto?.mediaType === "RAW"
           ? coverPhoto.posterUrl
-          : coverPhoto ? (coverPhoto.wm ? `/api/wm/${coverPhoto.id}?w=2048` : /\.gif$/i.test(coverPhoto.url) ? coverPhoto.url : `/api/preview/${coverPhoto.id}?w=2560&v=${pv}`) : "",
-    coverMediaType: collection.coverImageUrl ? "IMAGE" : coverPhoto?.mediaType ?? "IMAGE",
+          : coverPhoto ? (coverPhoto.wm ? `/api/wm/${coverPhoto.id}?w=2048` : !isOwner ? coverPhoto.url : /\.gif$/i.test(coverPhoto.url) ? coverPhoto.url : `/api/preview/${coverPhoto.id}?w=2560&v=${pv}`) : "",
+    // A visitor's video cover is its poster image, so it renders as an image.
+    coverMediaType: collection.coverImageUrl ? "IMAGE" : coverPhoto?.mediaType === "VIDEO" && !isOwner ? "IMAGE" : coverPhoto?.mediaType ?? "IMAGE",
     coverVideoUrl: collection.coverVideoUrl,
     focalX: collection.focalX,
     focalY: collection.focalY,

@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { createHmac, randomBytes } from "crypto";
+import { isExpired } from "./utils";
 
 // Client-side gallery access state, stored as an HMAC-signed cookie per collection.
 export type GalleryAccess = {
@@ -48,6 +49,24 @@ export function writeGalleryAccess(collectionId: string, access: GalleryAccess) 
     path: "/",
     maxAge: 60 * 60 * 24 * 90,
   });
+}
+
+export type GalleryGateReason = "draft" | "expired" | "prerelease" | "password" | "email";
+
+/**
+ * The gate a non-owner hits on this gallery, or null when they may view it.
+ * One decision shared by the gallery page and the /media route.
+ */
+export function galleryGate(
+  collection: { status: string; expiresAt: Date | null; password: string | null; emailRegistration: boolean },
+  access: GalleryAccess
+): GalleryGateReason | null {
+  if (collection.status === "DRAFT") return "draft";
+  if (isExpired(collection.expiresAt)) return "expired";
+  if (collection.status === "PRERELEASE") return "prerelease";
+  if (collection.password && !access.pw) return "password";
+  if (collection.emailRegistration && !access.email) return "email";
+  return null;
 }
 
 // Anonymous client key for download-cap accounting when no email registered.

@@ -5,6 +5,7 @@ import path from "path";
 import { Readable } from "stream";
 import { b2Enabled, presignGet } from "@/lib/storage";
 import { contentTypeFor } from "@/lib/media";
+import { canReadMediaKey } from "@/lib/media-access";
 
 export const runtime = "nodejs";
 
@@ -15,9 +16,20 @@ export const runtime = "nodejs";
 // to a short-lived presigned GET so bytes flow straight from Backblaze, not
 // through this 512 MB server. Without B2 (dev), stream the local file.
 
-export async function GET(_req: NextRequest, { params }: { params: { path: string[] } }) {
+export async function GET(req: NextRequest, { params }: { params: { path: string[] } }) {
   const key = (params.path ?? []).map((seg) => decodeURIComponent(seg)).join("/");
   if (!key || key.includes("..")) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // GLE-115: entitlement is decided before any presign or file read.
+  let allowed = false;
+  try {
+    allowed = await canReadMediaKey(key, req.nextUrl.searchParams.get("qs") ?? "");
+  } catch {
+    allowed = false;
+  }
+  if (!allowed) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403, headers: { "Cache-Control": "no-store" } });
+  }
 
   if (b2Enabled()) {
     try {
@@ -40,7 +52,7 @@ export async function GET(_req: NextRequest, { params }: { params: { path: strin
       headers: {
         "Content-Type": contentTypeFor(key),
         "Content-Length": String(st.size),
-        "Cache-Control": "public, max-age=3600",
+        "Cache-Control": "private, max-age=300",
       },
     });
   } catch {
