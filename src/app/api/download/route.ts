@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { readGalleryAccess, ensureClientKey } from "@/lib/gallery-auth";
+import { readGalleryAccess, ensureClientKey, isEmailVerified, ownsFavoriteList } from "@/lib/gallery-auth";
+import { namedClientEmails } from "@/lib/gallery-verify";
 import { logActivity } from "@/lib/activity";
 import { DOWNLOAD_SIZES } from "@/lib/design";
 import { isExpired, isMobileUserAgent } from "@/lib/utils";
@@ -76,6 +77,22 @@ export async function GET(req: NextRequest) {
   // Restrict downloads to clients only: registered email plus PIN.
   if (collection.clientOnlyDownloads && !isOwner && !access.email) {
     return err("Downloads are for registered clients. Enter your email first.", 401, { needsEmail: true });
+  }
+  // GLE-122 (H7): when the photographer named clients, a typed email is not enough.
+  // A photographer-issued credential (download group, exclusive-set unlock) still
+  // counts. With no named clients there is nobody to impersonate: email plus PIN.
+  if (collection.clientOnlyDownloads && !isOwner) {
+    const hasCredential =
+      !!group?.canDownload || collection.sets.some((s) => s.clientExclusive && access.sets.includes(s.id));
+    if (!hasCredential) {
+      const named = await namedClientEmails(collection.id);
+      if (named.size > 0 && !named.has(access.email)) {
+        return err("Downloads are reserved for this gallery's client.", 403, { notClient: true });
+      }
+      if (named.size > 0 && !isEmailVerified(collection.id, access)) {
+        return err("Confirm your email to download.", 403, { needsVerification: true });
+      }
+    }
   }
 
   const offered = collection.downloadSizes.split(",").filter(Boolean);
@@ -186,7 +203,11 @@ export async function GET(req: NextRequest) {
   if (listId) {
     const list = await db.favoriteList.findFirst({ where: { id: listId, collectionId: collection.id }, include: { favorites: true } });
     if (!list) return err("Favorite list not found", 404);
-    if (!isOwner && list.clientEmail !== access.email) return err("This list belongs to another client", 403);
+    if (!isOwner && !ownsFavoriteList(list, access)) {
+      return err("This list belongs to another client", 403, {
+        needsVerification: !!access.email && access.email === list.clientEmail,
+      });
+    }
     const inList = new Set(list.favorites.map((f) => f.photoId));
     photos = photos.filter((p) => inList.has(p.id));
     label = `${collection.slug}-${list.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;

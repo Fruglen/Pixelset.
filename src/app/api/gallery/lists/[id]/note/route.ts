@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { readGalleryAccess } from "@/lib/gallery-auth";
+import { ownsFavoriteList, readGalleryAccess } from "@/lib/gallery-auth";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const list = await db.favoriteList.findUnique({ where: { id: params.id } });
   if (!list) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const access = readGalleryAccess(list.collectionId);
-  if (!access.email || access.email !== list.clientEmail) {
-    return NextResponse.json({ error: "This list belongs to another client" }, { status: 403 });
+  if (!ownsFavoriteList(list, access)) {
+    return NextResponse.json(
+      { error: "This list belongs to another client", needsVerification: !!access.email && access.email === list.clientEmail },
+      { status: 403 }
+    );
   }
   if (list.submittedAt) {
     return NextResponse.json({ error: "This list was already sent to the photographer" }, { status: 400 });

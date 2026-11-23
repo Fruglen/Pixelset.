@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { readGalleryAccess } from "@/lib/gallery-auth";
+import { ownsFavoriteList, readGalleryAccess } from "@/lib/gallery-auth";
 import { logActivity } from "@/lib/activity";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -13,8 +13,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!col?.favoritesEnabled) return NextResponse.json({ error: "Favorites are turned off for this gallery" }, { status: 403 });
   if (list.submittedAt) return NextResponse.json({ error: `“${list.name}” was already sent to the photographer. Ask them to reopen it to make changes.` }, { status: 400 });
   const access = readGalleryAccess(list.collectionId);
-  if (!access.email || access.email !== list.clientEmail) {
-    return NextResponse.json({ error: "This list belongs to another client" }, { status: 403 });
+  if (!ownsFavoriteList(list, access)) {
+    return NextResponse.json(
+      { error: "This list belongs to another client", needsVerification: !!access.email && access.email === list.clientEmail },
+      { status: 403 }
+    );
   }
 
   const { photoId } = await req.json();

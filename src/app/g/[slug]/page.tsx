@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import { galleryT } from "@/lib/gallery-i18n";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { galleryGate, readGalleryAccess } from "@/lib/gallery-auth";
+import { galleryGate, ownsFavoriteList, readGalleryAccess } from "@/lib/gallery-auth";
+import { needsEmailVerification } from "@/lib/gallery-verify";
 import { paletteById, fontById } from "@/lib/design";
 import { brandFor } from "@/lib/brand";
 import { photoWatermarked } from "@/lib/watermark";
@@ -255,14 +256,18 @@ export default async function GalleryPage({
     orderBy: { createdAt: "asc" },
   });
 
-  // Favorite lists for this viewer (by registered email)
+  // Favorite lists for this viewer. GLE-122: a typed email alone shows none of
+  // them; the viewer must have confirmed it or created the list in this browser.
   const lists = access.email
-    ? await db.favoriteList.findMany({
-        where: { collectionId: collection.id, clientEmail: access.email },
-        include: { favorites: true },
-        orderBy: { createdAt: "asc" },
-      })
+    ? (
+        await db.favoriteList.findMany({
+          where: { collectionId: collection.id, clientEmail: access.email },
+          include: { favorites: true },
+          orderBy: { createdAt: "asc" },
+        })
+      ).filter((l) => ownsFavoriteList(l, access))
     : [];
+  const needsVerification = !isOwner && (await needsEmailVerification(collection.id, access));
 
   // Storefront: assigned price sheet + store settings (Phase 4)
   let store: GalleryData["store"] = null;
@@ -373,6 +378,7 @@ export default async function GalleryPage({
     slideshowMusicUrl: collection.slideshowMusicUrl,
     hasExclusiveSets,
     viewerEmail: access.email,
+    needsVerification,
     viewerName: access.name,
     sets,
     comments: comments.map((cm) => ({

@@ -113,6 +113,7 @@ export type GalleryData = {
   accessGroup?: { name: string; canDownload: boolean } | null; // Phase 5B platform
   hasAccessGroups?: boolean;
   viewerEmail: string;
+  needsVerification?: boolean; // GLE-122: typed email carries ownership not yet confirmed
   viewerName: string;
   sets: { id: string; name: string; clientExclusive: boolean; photos: GalleryPhoto[] }[];
   comments: { id: string; photoId: string; authorName: string; body: string; timecodeSec?: number | null; createdAt: string }[];
@@ -157,6 +158,14 @@ export default function GalleryView({ data }: { data: GalleryData }) {
   const [idEmail, setIdEmail] = useState("");
   const [idName, setIdName] = useState("");
   const [idOptIn, setIdOptIn] = useState(false);
+  // GLE-122 (H7): one-time code for emails that carry ownership
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [verifySent, setVerifySent] = useState(false);
+  const [verifyCode, setVerifyCode] = useState("");
+  const [verifyError, setVerifyError] = useState("");
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [verifyDismissed, setVerifyDismissed] = useState(false);
+  const [verifyEmail, setVerifyEmail] = useState(data.viewerEmail);
   const [download, setDownload] = useState<{ photoId: string | null; all: boolean; listId?: string } | null>(null);
   const [pin, setPin] = useState("");
   const [dlSize, setDlSize] = useState(data.downloadSizes[0] ?? "original");
@@ -209,6 +218,9 @@ export default function GalleryView({ data }: { data: GalleryData }) {
 
   const viewerEmail = data.viewerEmail;
 
+  // GLE-122: lists appear once the server confirms ownership after a refresh.
+  useEffect(() => setLists(data.lists), [data.lists]);
+
   // Log a gallery view once per mount (skip owner preview)
   useEffect(() => {
     if (!data.isOwner) {
@@ -244,9 +256,62 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       body: JSON.stringify({ mode: "identify", email: idEmail, name: idName, optIn: data.campaignOptIn && idOptIn }),
     });
     if (res.ok) {
+      const result = await res.json().catch(() => ({}));
       setIdentify({ open: false, then: null });
       router.refresh();
+      if (result.needsVerification) {
+        setVerifyEmail(idEmail.toLowerCase().trim());
+        setVerifyOpen(true);
+        void requestVerifyCode();
+      }
     }
+  }
+
+  async function requestVerifyCode() {
+    setVerifyBusy(true);
+    setVerifyError("");
+    const res = await fetch(`/api/gallery/${data.slug}/unlock`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "verify-request" }),
+    }).catch(() => null);
+    setVerifyBusy(false);
+    if (res?.ok) {
+      setVerifySent(true);
+      setVerifyCode("");
+    } else {
+      const err = res ? await res.json().catch(() => ({})) : {};
+      setVerifyError(te(err.error, t("somethingWrong")));
+    }
+  }
+
+  async function submitVerifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    setVerifyBusy(true);
+    setVerifyError("");
+    const res = await fetch(`/api/gallery/${data.slug}/unlock`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "verify-confirm", code: verifyCode }),
+    }).catch(() => null);
+    setVerifyBusy(false);
+    if (res?.ok) {
+      setVerifyOpen(false);
+      setVerifySent(false);
+      setVerifyCode("");
+      router.refresh();
+    } else if (res?.status === 429) {
+      const err = await res.json().catch(() => ({}));
+      setVerifyError(te(err.error, t("somethingWrong")));
+    } else {
+      setVerifyError(t("verifyFailed"));
+    }
+  }
+
+  function openVerify() {
+    setVerifyEmail(viewerEmail);
+    setVerifyError("");
+    setVerifyOpen(true);
   }
 
   async function createList(name: string, limitStr: string) {
@@ -259,6 +324,9 @@ export default function GalleryView({ data }: { data: GalleryData }) {
       const created = await res.json();
       setLists((prev) => [...prev, { id: created.id, name, selectionLimit: limitStr ? Number(limitStr) : null, submittedAt: null, favorites: [] }]);
       setActiveListId(created.id);
+    } else if (res.status === 403) {
+      const err = await res.json().catch(() => ({}));
+      if (err.needsVerification) openVerify();
     }
   }
 
@@ -272,7 +340,11 @@ export default function GalleryView({ data }: { data: GalleryData }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: t("myFavorites"), selectionLimit: null }),
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          if (err.needsVerification) openVerify();
+          return;
+        }
         const created = await res.json();
         listId = created.id as string;
         setLists((prev) => [...prev, { id: listId!, name: t("myFavorites"), selectionLimit: null, submittedAt: null, favorites: [] }]);
@@ -299,7 +371,8 @@ export default function GalleryView({ data }: { data: GalleryData }) {
         );
       } else {
         const err = await res.json().catch(() => ({}));
-        if (err.error) alert(te(err.error));
+        if (err.needsVerification) openVerify();
+        else if (err.error) alert(te(err.error));
       }
     });
   }
@@ -384,6 +457,15 @@ export default function GalleryView({ data }: { data: GalleryData }) {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       // Phase 5B platform: phones get the emailed link instead of a ZIP they cannot open.
+      if (err.needsVerification) {
+        closeDownload();
+        openVerify();
+        return;
+      }
+      if (err.notClient) {
+        setDlError(t("verifyNotClient"));
+        return;
+      }
       if (err.desktopOnly || err.needsEmail) setDlNeedsEmail(true);
       if (Array.isArray(err.parts)) setDlParts(err.parts);
       setDlError(te(err.error, t("downloadFailed")));
@@ -1167,6 +1249,62 @@ export default function GalleryView({ data }: { data: GalleryData }) {
                 {t("cancel")}
               </button>
               <button className="btn-primary">{t("continue")}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ---------- CONFIRM EMAIL (GLE-122) ---------- */}
+      {data.needsVerification && !verifyOpen && !verifyDismissed && (
+        <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:max-w-sm z-50 bg-white text-ink rounded-lg shadow-lg p-4 space-y-2">
+          <p className="text-xs text-neutral-600">{t("verifyIntro", { email: viewerEmail })}</p>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-secondary" onClick={() => setVerifyDismissed(true)}>
+              {t("verifyLater")}
+            </button>
+            <button type="button" className="btn-primary" onClick={openVerify}>
+              {t("verifyTitle")}
+            </button>
+          </div>
+        </div>
+      )}
+      {verifyOpen && (
+        <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4">
+          <form onSubmit={submitVerifyCode} className="bg-white rounded-lg p-6 w-full max-w-sm text-ink space-y-3">
+            <h3 className="font-display text-lg">{t("verifyTitle")}</h3>
+            <p className="text-xs text-neutral-500">
+              {verifySent ? t("verifyBody", { email: verifyEmail }) : t("verifyIntro", { email: verifyEmail })}
+            </p>
+            {verifySent && (
+              <input
+                className="input text-center tracking-widest uppercase"
+                value={verifyCode}
+                onChange={(e) => setVerifyCode(e.target.value)}
+                autoComplete="one-time-code"
+                maxLength={12}
+                required
+                autoFocus
+              />
+            )}
+            {verifyError && <p className="text-sm text-red-600">{verifyError}</p>}
+            <div className="flex flex-wrap justify-end gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setVerifyOpen(false)}>
+                {t("verifyLater")}
+              </button>
+              {verifySent ? (
+                <>
+                  <button type="button" className="btn-secondary" disabled={verifyBusy} onClick={requestVerifyCode}>
+                    {t("verifyResend")}
+                  </button>
+                  <button className="btn-primary" disabled={verifyBusy}>
+                    {t("verifyConfirm")}
+                  </button>
+                </>
+              ) : (
+                <button type="button" className="btn-primary" disabled={verifyBusy} onClick={requestVerifyCode}>
+                  {t("verifySend")}
+                </button>
+              )}
             </div>
           </form>
         </div>

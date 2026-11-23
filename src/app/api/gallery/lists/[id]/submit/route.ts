@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { readGalleryAccess } from "@/lib/gallery-auth";
+import { ownsFavoriteList, readGalleryAccess } from "@/lib/gallery-auth";
 import { getCurrentUser } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { notify } from "@/lib/notify";
@@ -18,8 +18,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   });
   if (!list) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const access = readGalleryAccess(list.collectionId);
-  if (!access.email || access.email !== list.clientEmail) {
-    return NextResponse.json({ error: "This list belongs to another client" }, { status: 403 });
+  if (!ownsFavoriteList(list, access)) {
+    return NextResponse.json(
+      { error: "This list belongs to another client", needsVerification: !!access.email && access.email === list.clientEmail },
+      { status: 403 }
+    );
   }
   if (list.favorites.length === 0) return NextResponse.json({ error: "Add at least one photo first" }, { status: 400 });
   const body = await req.json().catch(() => ({}));

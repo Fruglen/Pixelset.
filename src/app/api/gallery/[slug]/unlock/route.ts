@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { readGalleryAccess, writeGalleryAccess } from "@/lib/gallery-auth";
+import {
+  clearEmailChallenge,
+  confirmEmailChallenge,
+  createEmailChallenge,
+  readGalleryAccess,
+  withEmailVerified,
+  writeGalleryAccess,
+} from "@/lib/gallery-auth";
+import { needsEmailVerification } from "@/lib/gallery-verify";
+import { sendMail } from "@/lib/mailer";
 import { logActivity } from "@/lib/activity";
 import { upsertContact } from "@/lib/contact-sync";
-import { rateLimitKey, recordFailure, retryAfterSeconds, tooManyAttempts } from "@/lib/rate-limit";
+import { clearFailures, rateLimitKey, recordFailure, retryAfterSeconds, tooManyAttempts } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
   const collection = await db.collection.findUnique({
@@ -75,9 +84,57 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
       });
       await logActivity(collection.id, "MARKETING_OPT_IN", "Opted in to marketing emails", email);
     }
-    if (mode !== "prerelease") {
-      writeGalleryAccess(collection.id, { ...access, email, name });
+    if (mode === "prerelease") return NextResponse.json({ ok: true });
+    // GLE-122: changing the typed email drops any ownership held under the old one.
+    const sameEmail = email === access.email;
+    const next = { ...access, email, name, lists: sameEmail ? access.lists : [], verified: sameEmail ? access.verified : "" };
+    writeGalleryAccess(collection.id, next);
+    return NextResponse.json({ ok: true, needsVerification: await needsEmailVerification(collection.id, next) });
+  }
+
+  // GLE-122 (H7): email the current identity a one-time code. Only addresses that
+  // would gain ownership get mail, so this cannot be used to send to anyone.
+  if (mode === "verify-request") {
+    if (!access.email) return NextResponse.json({ error: "Valid email required" }, { status: 400 });
+    if (!(await needsEmailVerification(collection.id, access))) {
+      return NextResponse.json({ ok: true, required: false });
     }
+    // Two limits: per sender, and per recipient so many IPs cannot flood one inbox.
+    // No await between check and record.
+    const senderKey = rateLimitKey("gallery-verify-send", req.headers, collection.id);
+    const inboxKey = rateLimitKey("gallery-verify-inbox", new Headers(), access.email);
+    const retryAfter = Math.max(retryAfterSeconds(senderKey), retryAfterSeconds(inboxKey));
+    if (retryAfter > 0) return tooManyAttempts(retryAfter);
+    recordFailure(senderKey);
+    recordFailure(inboxKey);
+    const code = createEmailChallenge(collection.id, access.email);
+    const mail = await sendMail({
+      userId: collection.userId,
+      to: access.email,
+      subject: `Your code for ${collection.name}`,
+      text: `Your confirmation code is ${code}\n\nEnter it in the gallery "${collection.name}" to open your favorites and downloads. It expires in 10 minutes and only works in the browser where you asked for it.\n\nIf you did not ask for this, you can ignore this email.`,
+    });
+    if (!mail.sent) {
+      clearEmailChallenge(collection.id);
+      return NextResponse.json({ error: "We could not send the code. Please contact your photographer." }, { status: 503 });
+    }
+    return NextResponse.json({ ok: true, required: true });
+  }
+
+  if (mode === "verify-confirm") {
+    const code = typeof body.code === "string" ? body.code : "";
+    const confirmKey = rateLimitKey("gallery-verify", req.headers, `${collection.id}\n${access.email}`);
+    // No await between check, verify, and record.
+    const retryAfter = retryAfterSeconds(confirmKey);
+    if (retryAfter > 0) return tooManyAttempts(retryAfter);
+    if (!confirmEmailChallenge(collection.id, access.email, code)) {
+      recordFailure(confirmKey);
+      return NextResponse.json({ error: "That code is not valid or has expired" }, { status: 401 });
+    }
+    clearFailures(confirmKey);
+    clearEmailChallenge(collection.id);
+    writeGalleryAccess(collection.id, withEmailVerified(collection.id, access));
+    await logActivity(collection.id, "EMAIL_VERIFIED", "Confirmed their email with a code", access.email);
     return NextResponse.json({ ok: true });
   }
 
