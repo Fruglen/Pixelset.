@@ -86,7 +86,14 @@ export function SubscriptionCard({
   }
 
   async function confirm() {
-    const json = await post({ action: "subscribe", ...sel, cycle });
+    let json: Record<string, unknown>;
+    try {
+      json = await post({ action: "subscribe", ...sel, cycle });
+    } catch (e) {
+      setPreview(null);
+      setMsg(e instanceof Error ? e.message : "Something went wrong");
+      return;
+    }
     if (json.url) {
       window.location.href = json.url as string;
       return;
@@ -112,9 +119,9 @@ export function SubscriptionCard({
       <h2 className="font-medium">Subscription</h2>
       {!stripeConnected && (
         <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mt-2">
-          Billing is parked on this server: no payment processor is connected, so subscriptions run in simulated
-          mode and no card is ever charged. Connect Stripe (STRIPE_SECRET_KEY) to take real plan payments through
-          Stripe Checkout.
+          Billing is parked on this server: no payment processor is connected, so new subscriptions and paid plan
+          changes are unavailable and no card is ever charged. Connect Stripe (STRIPE_SECRET_KEY) to take real plan
+          payments through Stripe Checkout.
         </p>
       )}
       {stripeConnected && (

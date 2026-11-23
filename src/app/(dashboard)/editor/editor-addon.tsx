@@ -13,9 +13,11 @@ export default function EditorAddonWall({ planLabel }: { planLabel: string }) {
   const router = useRouter();
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   async function activate() {
     setBusy(true);
+    setError("");
     const res = await fetch("/api/account/billing", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -25,6 +27,9 @@ export default function EditorAddonWall({ planLabel }: { planLabel: string }) {
     if (res.ok) {
       setTried(true);
       router.refresh();
+    } else {
+      const json = await res.json().catch(() => ({}));
+      setError(json.error || "Could not add the Photo Editor.");
     }
   }
   return (
@@ -49,6 +54,7 @@ export default function EditorAddonWall({ planLabel }: { planLabel: string }) {
             Add-on activated in simulated mode: billing is parked, so nothing was charged. The editor is open.
           </p>
         ) : null}
+        {error ? <p className="text-sm text-red-700">{error}</p> : null}
         <button className="btn-primary" disabled={busy} onClick={activate}>
           Add the Photo Editor, $12/month
         </button>

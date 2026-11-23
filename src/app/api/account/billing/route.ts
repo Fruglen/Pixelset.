@@ -11,6 +11,7 @@ import {
   stripeBillingConnected,
   subscribeOrChange,
   TierSet,
+  UnpaidChangeError,
 } from "@/lib/billing";
 import {
   GALLERY_TIERS,
@@ -21,9 +22,8 @@ import {
 } from "@/lib/plans";
 
 // Night build (Pricing lane): plan subscription billing. Parked by the
-// owner's order: without STRIPE_SECRET_KEY every action runs the simulated
-// state machine and nothing is charged; with a key, new subscriptions go
-// through real Stripe Checkout.
+// owner's order: without STRIPE_SECRET_KEY, subscribing is refused and tiers
+// do not change; with a key, subscriptions go through real Stripe Checkout.
 
 function tierSet(body: Record<string, unknown>, fallback: TierSet): TierSet {
   return {
@@ -61,6 +61,9 @@ export async function POST(req: NextRequest) {
       if (action === "preview") {
         return NextResponse.json({ preview: previewChange(state, target, cycle) });
       }
+      if (!stripeBillingConnected()) {
+        return NextResponse.json({ error: "Payments are not enabled on this server." }, { status: 503 });
+      }
       const origin = req.nextUrl.origin;
       const result = await subscribeOrChange(user.id, target, cycle, origin);
       return NextResponse.json({ ok: true, url: result.url, simulated: result.simulated ?? false });
@@ -95,6 +98,9 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (e) {
+    if (e instanceof UnpaidChangeError) {
+      return NextResponse.json({ error: e.message }, { status: 403 });
+    }
     return NextResponse.json({ error: e instanceof Error ? e.message : "Billing action failed" }, { status: 400 });
   }
 }

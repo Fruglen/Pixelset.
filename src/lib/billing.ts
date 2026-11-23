@@ -18,12 +18,10 @@ import {
 // prorated, cancellations are NOT refunded and paid access runs to the end of
 // the paid period, after which the account drops to the Free plans.
 //
-// Billing is parked by the owner's order. With no STRIPE_SECRET_KEY on the
-// server every step below runs as a clearly labelled simulated subscription:
-// the full state machine (subscribe, prorated change, renewal, cancellation,
-// add-ons, history) works, and nothing is ever charged. With a key set, new
-// subscriptions go through real Stripe Checkout and changes update the real
-// Stripe subscription with proration; the local state mirrors Stripe.
+// Billing is parked by the owner's order. Paid tiers change only through real
+// Stripe Checkout or a real Stripe subscription update, which need
+// STRIPE_SECRET_KEY; the local state mirrors Stripe. Add-ons and Volume plans
+// have no payment path yet, so adding them needs planSwitchAllowed().
 // ---------------------------------------------------------------------------
 
 export interface TierSet {
@@ -62,6 +60,17 @@ async function save(userId: string, state: PlanState) {
 export function stripeBillingConnected(): boolean {
   return !!process.env.STRIPE_SECRET_KEY;
 }
+
+/**
+ * Unpaid plan and add-on changes exist for demos and testing only. In
+ * production they need the explicit operator flag ALLOW_PLAN_SWITCH=1.
+ */
+export function planSwitchAllowed(): boolean {
+  return process.env.NODE_ENV !== "production" || process.env.ALLOW_PLAN_SWITCH === "1";
+}
+
+/** A change that would grant paid access without a verified payment. */
+export class UnpaidChangeError extends Error {}
 
 // ---------------------------------------------------------------------------
 // Lifecycle: renewal and end of period closing, run lazily whenever the
@@ -228,10 +237,9 @@ function applyTiers(state: PlanState, target: TierSet) {
 }
 
 /**
- * Subscribe a free account, or change an active subscription's plans with
- * proration. Returns a Stripe Checkout URL when real billing is connected
- * and money is due for a brand new subscription; otherwise the change is
- * applied immediately as a simulated subscription.
+ * Subscribe a free account through Stripe Checkout, or change a real Stripe
+ * subscription with proration. Throws UnpaidChangeError rather than granting
+ * a paid tier when no verified payment path applies.
  */
 export async function subscribeOrChange(
   userId: string,
@@ -245,7 +253,6 @@ export async function subscribeOrChange(
   processBilling(state);
   const b = state.billing;
   const newPrice = planSetPriceCents(target, cycle);
-  const now = new Date();
 
   // Downgrading everything to Free is a cancellation: paid access runs to
   // the end of the period, per the policy (no refunds).
@@ -299,36 +306,9 @@ export async function subscribeOrChange(
     }
   }
 
-  // Simulated path (billing parked): full state machine, nothing charged.
-  if (b.status !== "ACTIVE") {
-    applyTiers(state, target);
-    b.status = "ACTIVE";
-    b.cycle = cycle;
-    b.processor = "none";
-    b.periodStart = now.toISOString();
-    b.periodEnd = periodEndFor(now, cycle).toISOString();
-    b.cancelAtPeriodEnd = false;
-    b.autoRenew = true;
-    pushHistory(b, "SUBSCRIBE", "Subscribed (simulated, no billing connected, nothing charged).", newPrice);
-    await save(userId, state);
-    return { ok: true, simulated: true, state };
-  }
-
-  const preview = previewChange(state, target, cycle);
-  applyTiers(state, target);
-  if (preview.cycleChanged) {
-    b.cycle = cycle;
-    b.periodStart = now.toISOString();
-    b.periodEnd = periodEndFor(now, cycle).toISOString();
-  }
-  pushHistory(
-    b,
-    "CHANGE",
-    `Plan changed with proration (simulated, nothing charged): credit ${fmt(preview.creditCents)} for the unused part of the old plan, ${fmt(preview.dueCents)} for the new plan to the end of the period.`,
-    preview.netCents,
-  );
-  await save(userId, state);
-  return { ok: true, simulated: true, state };
+  // No verified payment path applies (for example an active subscription
+  // that was never set up through Stripe), so paid tiers must not change.
+  throw new UnpaidChangeError("This plan can't be changed online because it has no Stripe subscription.");
 }
 
 function fmt(cents: number): string {
@@ -420,6 +400,10 @@ export async function setAddOn(
   if (key === "extraVideoHours") b.addOns.extraVideoHours = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
   if (key === "extraCampaignBlocks") b.addOns.extraCampaignBlocks = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
   const after = addOnsMonthlyCents(b);
+  // Add-ons have no payment path yet: removing is always fine, adding is not.
+  if (after > before && !planSwitchAllowed()) {
+    throw new UnpaidChangeError("Add-ons can't be purchased yet because payments are not enabled.");
+  }
   const label =
     key === "editor"
       ? b.addOns.editor
@@ -452,6 +436,11 @@ export async function setVolume(
 ): Promise<PlanState> {
   const state = await getBillingState(userId);
   if (!state) throw new Error("Account not found");
+  // Volume plans have no payment path yet: only a step down is allowed.
+  const terabytes = (v: string) => Number(v.replace("volume", "")) || 0;
+  if (terabytes(volume) > terabytes(state.billing.volume) && !planSwitchAllowed()) {
+    throw new UnpaidChangeError("Volume plans can't be purchased yet because payments are not enabled.");
+  }
   state.billing.volume = volume;
   pushHistory(
     state.billing,

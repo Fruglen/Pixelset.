@@ -29,7 +29,13 @@ export function PlanSwitcher({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(next),
     });
-    setMsg(res.ok ? "Plan updated. No charge was made, billing is not connected." : "Could not update the plan");
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      setV(v); // the server refused, so show the tiers still in force
+      setMsg(json.error || "Could not update the plan");
+      return;
+    }
+    setMsg("Plan updated. No charge was made, billing is not connected.");
     router.refresh();
   }
   const rows: { key: keyof Tiers; name: string }[] = [
