@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { permissionError } from "@/lib/team";
 import { googleConnectUrl, googleOAuthConfigured } from "@/lib/google-calendar";
+import { createOAuthState, setOAuthStateCookie } from "@/lib/oauth-state";
 
 // Start the Google Calendar OAuth flow. When the server has no Google
 // credentials configured the photographer is sent back to settings with an
@@ -13,7 +14,10 @@ export async function GET(req: NextRequest) {
   if (!googleOAuthConfigured()) {
     return NextResponse.redirect(new URL("/studio/settings?google=not-configured", req.url));
   }
-  const url = googleConnectUrl(user.id);
+  const state = createOAuthState();
+  const url = googleConnectUrl(state);
   if (!url) return NextResponse.redirect(new URL("/studio/settings?google=not-configured", req.url));
-  return NextResponse.redirect(url);
+  const res = NextResponse.redirect(url);
+  setOAuthStateCookie(res, "google", state, user.id);
+  return res;
 }

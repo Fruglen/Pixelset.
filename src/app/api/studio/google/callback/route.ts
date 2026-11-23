@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { permissionError } from "@/lib/team";
 import { getStudioProfile } from "@/lib/studio";
 import { exchangeGoogleCode, googleEmailFor, syncAllBookingsToGoogle } from "@/lib/google-calendar";
+import { clearOAuthStateCookie, consumeOAuthState } from "@/lib/oauth-state";
 
 // Google OAuth callback: store the refresh token + account email on the
 // studio profile, switch two way sync on, and run the first sync (existing
@@ -11,12 +12,17 @@ import { exchangeGoogleCode, googleEmailFor, syncAllBookingsToGoogle } from "@/l
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.redirect(new URL("/login", req.url));
-  const back = (note: string) => NextResponse.redirect(new URL(`/studio/settings?google=${note}`, req.url));
+  const back = (note: string) => {
+    const res = NextResponse.redirect(new URL(`/studio/settings?google=${note}`, req.url));
+    clearOAuthStateCookie(res, "google");
+    return res;
+  };
   if (await permissionError("settings")) return back("error");
 
+  // GLE-137: only a flow this user started here may connect a calendar.
+  if (!consumeOAuthState(req, "google", user.id)) return back("error");
   const code = req.nextUrl.searchParams.get("code") ?? "";
-  const state = req.nextUrl.searchParams.get("state") ?? "";
-  if (!code || state !== user.id) return back("error");
+  if (!code) return back("error");
 
   const out = await exchangeGoogleCode(code);
   if ("error" in out) return back("error");

@@ -31,7 +31,7 @@ function redirectUri(): string {
   return process.env.GOOGLE_REDIRECT_URI || `${appBaseUrl()}/api/studio/google/callback`;
 }
 
-export function googleConnectUrl(userId: string): string | null {
+export function googleConnectUrl(state: string): string | null {
   if (!googleOAuthConfigured()) return null;
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID as string,
@@ -40,7 +40,7 @@ export function googleConnectUrl(userId: string): string | null {
     scope: CALENDAR_SCOPE,
     access_type: "offline",
     prompt: "consent",
-    state: userId,
+    state,
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
