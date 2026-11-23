@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 
 // Phase 5B seed data for the studio section.
 export async function seed(db: PrismaClient, userId: string) {
@@ -118,7 +118,9 @@ export async function seed(db: PrismaClient, userId: string) {
       ]),
     },
   });
-  await db.studioProfile.updateMany({ where: { userId }, data: { feedbackQuestionnaireId: feedback.id, inboundToken: "demo7f3a2c" } });
+  // Same format the studio inbox page generates for inbox+<token> addresses.
+  const inboundToken = randomBytes(6).toString("hex");
+  await db.studioProfile.updateMany({ where: { userId }, data: { feedbackQuestionnaireId: feedback.id, inboundToken } });
   const olivia = await db.contact.findFirst({ where: { userId, email: "olivia.grant@example.com" } });
   const emma = await db.contact.findFirst({ where: { userId, email: "emma@example.com" } });
   if (olivia) {
@@ -149,7 +151,7 @@ export async function seed(db: PrismaClient, userId: string) {
     data: {
       userId,
       name: "Wedding inquiry",
-      token: "wedding-inquiry-demo",
+      token: randomUUID(),
       heading: "Let's plan your wedding photography",
       intro: "Tell us about your day and we'll reply within two business days with availability and collections.",
       fields: JSON.stringify([
@@ -163,8 +165,8 @@ export async function seed(db: PrismaClient, userId: string) {
   });
 
   // ---- Payment links
-  await db.paymentLink.create({ data: { userId, title: "Post session tip", description: "Thank you for the kindness, it is always appreciated.", amountCents: 0, token: "tip-demo" } });
-  const printLink = await db.paymentLink.create({ data: { userId, title: "16x20 fine art print", description: "Archival giclee print, signed.", amountCents: 18500, token: "print-demo" } });
+  await db.paymentLink.create({ data: { userId, title: "Post session tip", description: "Thank you for the kindness, it is always appreciated.", amountCents: 0, token: randomUUID() } });
+  const printLink = await db.paymentLink.create({ data: { userId, title: "16x20 fine art print", description: "Archival giclee print, signed.", amountCents: 18500, token: randomUUID() } });
   await db.studioPayment.create({
     data: { userId, source: "PAYMENT_LINK", sourceId: printLink.id, label: printLink.title, payerName: "Marcus Lee", payerEmail: "marcus.lee@example.com", amountCents: 18500, method: "card", createdAt: new Date(Date.now() - 6 * 86_400_000) },
   });
@@ -200,7 +202,7 @@ export async function seed(db: PrismaClient, userId: string) {
         totalCents: portrait.priceCents,
         retainerCents: 15000,
         source: "MANUAL",
-        clientToken: "awaiting-demo",
+        clientToken: randomUUID(),
       },
     });
     await db.project.create({ data: { userId, name: `${marcus.name}, ${portrait.name}`, contactId: marcus.id, bookingId: booking.id, stage: "BOOKED", order: 99 } });
@@ -218,7 +220,7 @@ export async function seed(db: PrismaClient, userId: string) {
       email: "olivia.grant@example.com",
       subject: "Re: Your quote QT-0001 from Light & Shadow",
       body: "Hi! We love the Signature coverage option. Could we add the rehearsal dinner too? Thank you, Olivia",
-      meta: "Received by email · to inbox+demo7f3a2c@mail.pixelset.app",
+      meta: `Received by email · to inbox+${inboundToken}@mail.pixelset.app`,
       read: false,
     },
   });

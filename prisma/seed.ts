@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { randomBytes, scryptSync } from "crypto";
+import { randomBytes, randomInt, scryptSync } from "crypto";
 import { mkdir, rm, writeFile } from "fs/promises";
 import path from "path";
 import { createWebsiteForUser } from "../src/lib/site-service";
@@ -80,9 +80,18 @@ async function placeImage(name: string) {
 }
 
 async function main() {
-  // QA cleanup runs on every boot, before the guard: it removes the test
-  // artifacts the Nov 19 functional test left on the demo data and is a
-  // no-op once they are gone.
+  // Security (GLE-117): everything below is demo data, so a production boot
+  // touches none of it unless SEED_DEMO=1. RENDER is checked as well so the
+  // gate stays closed on the Render host even if NODE_ENV is ever unset.
+  const isProduction = process.env.NODE_ENV === "production" || !!process.env.RENDER;
+  if (isProduction && process.env.SEED_DEMO !== "1") {
+    console.log("Production boot: demo seed skipped (set SEED_DEMO=1 to opt in).");
+    return;
+  }
+
+  // QA cleanup runs before the guard: it removes the test artifacts the
+  // Nov 19 functional test left on the demo data and is a no-op once they
+  // are gone.
   const cleaned = await cleanupQaArtifacts(db).catch((e) => {
     console.log(`QA cleanup skipped: ${e instanceof Error ? e.message : e}`);
     return [] as string[];
@@ -96,6 +105,17 @@ async function main() {
     console.log("Demo account already seeded — skipping seed (set SEED_FORCE=1 to rebuild).");
     return;
   }
+  // Demo secrets are random per seed. The login password is only set for a
+  // brand-new account: a SEED_FORCE rebuild keeps the existing hash. Dev keeps
+  // the well-known password because the local smoke scripts sign in with it.
+  const newAccountPassword = isProduction ? randomBytes(18).toString("base64url") : "demo1234";
+  const galleryPassword = randomBytes(9).toString("base64url");
+  const downloadPin = String(randomInt(1000, 10000));
+  const familySetPassword = randomBytes(9).toString("base64url");
+  const quickShareToken = randomBytes(16).toString("hex");
+  const storeDownloadToken = randomBytes(24).toString("hex");
+  const giftCardCode = `GC-${randomBytes(6).toString("hex").toUpperCase()}`;
+
   // Idempotent: wipe the demo user and rebuild
   await db.user.deleteMany({ where: { email: "demo@pixelset.app" } });
   await rm(SEED_DIR, { recursive: true, force: true });
@@ -104,7 +124,7 @@ async function main() {
   const user = await db.user.create({
     data: {
       email: "demo@pixelset.app",
-      passwordHash: hashPassword("demo1234"),
+      passwordHash: existing?.passwordHash ?? hashPassword(newAccountPassword),
       name: "Demo Photographer",
       businessName: "Light & Shadow Studio",
       watermarkText: "LIGHT & SHADOW",
@@ -131,12 +151,12 @@ async function main() {
       gridStyle: "vertical",
       thumbSize: "regular",
       gridSpacing: "regular",
-      password: "tuscany",
+      password: galleryPassword,
       emailRegistration: false,
       watermark: false,
       downloadEnabled: true,
       pinEnabled: true,
-      downloadPin: "4821",
+      downloadPin,
       pinUseLimit: 50,
       freeDownloadCap: 20,
       downloadSizes: "original,high3600,web2048,web640",
@@ -161,7 +181,7 @@ async function main() {
       order: 3,
       clientExclusive: true,
       clientEmail: "emma@example.com",
-      clientPassword: "family2026",
+      clientPassword: familySetPassword,
     },
   });
 
@@ -234,14 +254,14 @@ async function main() {
     data: {
       collectionId: wedding.id,
       email: "emma@example.com",
-      message: "Your full wedding gallery is ready — password is tuscany. Enjoy!",
+      message: `Your full wedding gallery is ready — password is ${galleryPassword}. Enjoy!`,
     },
   });
 
   const quickShare = await db.quickShare.create({
     data: {
       collectionId: wedding.id,
-      token: "demoquickshare01",
+      token: quickShareToken,
       photoIds: [photoIds[5], photoIds[6], photoIds[8]].join(","),
     },
   });
@@ -1084,7 +1104,7 @@ Agreed and accepted by the parties below.`,
     data: { userId: user.id, code: "FREESHIP", type: "FREE_SHIPPING", value: 0, minSpendCents: 5000 },
   });
   const giftCard = await db.giftCard.create({
-    data: { userId: user.id, code: "GC-DEMO-2026", initialCents: 5000, balanceCents: 5000, recipient: "Emma James — wedding gift from Aunt May" },
+    data: { userId: user.id, code: giftCardCode, initialCents: 5000, balanceCents: 5000, recipient: "Emma James — wedding gift from Aunt May" },
   });
   void giftCard;
 
@@ -1136,7 +1156,7 @@ Agreed and accepted by the parties below.`,
             photoName: "IMG_1101.jpg",
             qty: 1,
             unitCents: digitalHi.priceCents,
-            downloadToken: "demodownload0001",
+            downloadToken: storeDownloadToken,
             downloadExpires: new Date(Date.now() + 5 * 86_400_000),
           },
         ],
@@ -1347,20 +1367,22 @@ With gratitude,
 
   console.log("Seeded demo account:");
   console.log("  email:    demo@pixelset.app");
-  console.log("  password: demo1234");
+  // Production logs are retained, so only the one-time password of a newly
+  // created account is printed there; gallery secrets stay readable in the app.
+  console.log(existing ? "  password: unchanged (existing account)" : `  password: ${newAccountPassword}`);
   console.log("Collections:");
-  console.log(`  /g/emma-james-wedding   (published, password: tuscany, PIN: 4821)`);
-  console.log(`  /g/emma-james-wedding?qs=${quickShare.token}   (quick share)`);
+  console.log(`  /g/emma-james-wedding   (published${isProduction ? "" : `, password: ${galleryPassword}, PIN: ${downloadPin}`})`);
+  if (!isProduction) console.log(`  /g/emma-james-wedding?qs=${quickShare.token}   (quick share)`);
   console.log(`  /g/rivera-family-fall   (pre-release, email registration)`);
   console.log(`  /g/northline-coffee-brand   (draft)`);
-  console.log("Client Exclusive set: emma@example.com / family2026");
+  if (!isProduction) console.log(`Client Exclusive set: emma@example.com / ${familySetPassword}`);
   console.log("Website:");
   console.log("  /site/light-and-shadow   (Vienna template, 9 pages, 3 blog posts, redirect /investment→/pricing)");
   console.log("Studio Manager:");
   console.log("  /book/light-and-shadow   (booking site: wedding, portrait, Zoom consult + Holiday Mini Sessions)");
   console.log("  4 contacts, signed + pending contracts, INV-0001 (3 instalments, 1 paid), QT-0001 sent, projects board, inbox");
   console.log("Store (Phase 4):");
-  console.log("  WHCC price sheet on /g/emma-james-wedding (prints, canvas, album, digital), coupons PRINTS10 + FREESHIP, gift card GC-DEMO-2026 ($50)");
+  console.log("  WHCC price sheet on /g/emma-james-wedding (prints, canvas, album, digital), coupons PRINTS10 + FREESHIP, one $50 gift card");
   console.log("  ORD-0001 (processing, digital download link), 2 automations (1 run logged), mobile app at /app/emma-james, 2 team members, custom invoice-reminder template");
   console.log("Phase 5A:");
   console.log("  External Demo Set (picsum external references), demo video in Reception, RAW badge demo in Family Formals");
