@@ -24,9 +24,8 @@ export default async function PayLinkPage({ params }: { params: { token: string 
         {link.description ? <p className="text-sm text-neutral-600 text-center mt-3">{link.description}</p> : null}
         <div className="mt-8">
           <PayLinkClient
-            token={params.token}
             fixedCents={link.amountCents}
-            methods={{ stripe: profile.showStripe, paypal: profile.showPaypal, manual: profile.showManual && profile.manualEnabled }}
+            howToPay={profile.showManual && profile.manualEnabled ? profile.manualInstructions.trim() : ""}
           />
         </div>
       </div>

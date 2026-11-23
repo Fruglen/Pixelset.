@@ -1,20 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
-import { applyInvoicePayment } from "@/lib/invoice-pay";
+import { NextResponse } from "next/server";
 
-const METHODS = ["card", "paypal", "manual"];
-
-// Public invoice payment (recorded checkout; the owner's payments are parked,
-// so no processor is charged here. Live Stripe and PayPal payments settle
-// through /api/pay/[token]/checkout, the Stripe webhook, and the PayPal
-// capture return, all of which share applyInvoicePayment.)
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
-  const body = await req.json();
-  const method = METHODS.includes(body.method) ? body.method : "card";
-  const out = await applyInvoicePayment(params.token, {
-    installmentId: body.installmentId,
-    method,
-    tipCents: Math.max(0, Math.round(Number(body.tipCents) || 0)),
-  });
-  if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status ?? 400 });
-  return NextResponse.json({ ok: true, status: out.status });
+// Public invoice payment. Online payment is parked (GLE-134, same rule as
+// GLE-120), so a client request never settles an invoice or instalment, for
+// any method, amount, or tip. Live payments settle only through the
+// signature-checked Stripe webhook and the PayPal capture return; the
+// photographer records anything else from the dashboard.
+export async function POST() {
+  return NextResponse.json(
+    {
+      error: "Online payment is not enabled yet. You have not been charged, and your photographer will arrange payment with you.",
+      onlinePaymentEnabled: false,
+    },
+    { status: 409 }
+  );
 }

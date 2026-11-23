@@ -223,9 +223,9 @@ export default async function PayPage({ params, searchParams }: { params: { toke
         </div>
         <p className="text-center text-xs text-neutral-400 mt-8">
           {business} · powered by Pixora ·{" "}
-          {clientPaymentMethods(profile).stripeLive || clientPaymentMethods(profile).paypalLive
+          {(profile.showStripe && clientPaymentMethods(profile).stripeLive) || (profile.showPaypal && clientPaymentMethods(profile).paypalLive)
             ? "payments are processed securely by the connected payment provider"
-            : "demo checkout, payments are mocked and no card is charged"}
+            : "online payment is not enabled yet"}
         </p>
       </div>
     </div>
