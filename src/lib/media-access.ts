@@ -46,7 +46,18 @@ async function visitorMayLoad(photo: PhotoRow, urls: string[], qsToken: string):
   const isDisplayGif = photo.mediaType === "IMAGE" && urls.includes(photo.url) && /\.gif$/i.test(photo.url);
   const isVideoOriginal = photo.mediaType === "VIDEO" && urls.includes(photo.url);
   if (!isPoster && !isDisplayGif && !isVideoOriginal) return false;
+  return visitorMayViewPhoto(photo, qsToken);
+}
 
+type PhotoAccessRow = Pick<PhotoRow, "id" | "isPrivate"> & {
+  set: PhotoRow["set"];
+  collection: Pick<PhotoRow["collection"], "id" | "status" | "expiresAt" | "password" | "emailRegistration" | "accessGroups">;
+};
+
+// The visitor decision shared by /media and the rendition routes (GLE-116).
+async function visitorMayViewPhoto(photo: PhotoAccessRow, qsToken: string): Promise<boolean> {
+  const c = photo.collection;
+  if (photo.isPrivate) return false;
   const access = readGalleryAccess(c.id);
   if (photo.set.clientExclusive && !access.sets.includes(photo.set.id)) return false;
   const group = access.group ? c.accessGroups.find((g) => g.id === access.group) : undefined;
@@ -57,6 +68,42 @@ async function visitorMayLoad(photo: PhotoRow, urls: string[], qsToken: string):
   if (await quickShareCovers(qsToken, c.id, photo.id)) return true;
   // Same status decision as the gallery page: galleryGate alone.
   return galleryGate(c, access) === null;
+}
+
+/**
+ * GLE-116 (H1): may this request receive a preview or watermarked rendition?
+ * The owner always may. Anyone else goes through the gallery's visitor rules.
+ * Any error denies.
+ */
+export async function canViewPhotoRendition(
+  photo: PhotoAccessRow & { collection: { userId: string } },
+  qsToken: string
+): Promise<boolean> {
+  try {
+    const user = await getCurrentUser();
+    if (user?.id === photo.collection.userId) return true;
+    return await visitorMayViewPhoto(photo, qsToken);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True only when anyone may see this photo with no cookie or token, so a shared
+ * cache cannot serve it to the wrong viewer. A collection with an expiry is
+ * excluded because a day-long cached copy could outlive it.
+ */
+export function isFullyPublicPhoto(photo: PhotoAccessRow): boolean {
+  const c = photo.collection;
+  return (
+    c.status === "PUBLISHED" &&
+    !c.expiresAt &&
+    !c.password &&
+    !c.emailRegistration &&
+    c.accessGroups.length === 0 &&
+    !photo.isPrivate &&
+    !photo.set.clientExclusive
+  );
 }
 
 export async function canReadMediaKey(key: string, qsToken: string): Promise<boolean> {

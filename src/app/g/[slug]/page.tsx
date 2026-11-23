@@ -161,7 +161,7 @@ export default async function GalleryPage({
   const qsParam = quickPhotoIds && qsToken ? `qs=${encodeURIComponent(qsToken)}` : "";
   const visitorUrl = (p: { id: string; mediaType: string }, wm: boolean) => {
     if (p.mediaType !== "IMAGE") return "";
-    if (wm) return `/api/wm/${p.id}?w=2048&v=${pv}`;
+    if (wm) return `/api/wm/${p.id}?w=2048&v=${pv}${qsParam ? `&${qsParam}` : ""}`;
     return `/api/preview/${p.id}?w=2048&v=${pv}${qsParam ? `&${qsParam}` : ""}`;
   };
   // Only for photos that passed the set filters below. The cover fallback loads
@@ -169,7 +169,7 @@ export default async function GalleryPage({
   const entitledVideoUrl = (p: { url: string }) =>
     qsParam && p.url.startsWith("/media/") ? `${p.url}?${qsParam}` : p.url;
   const visitorPoster = (p: { id: string; mediaType: string; posterUrl: string }) => {
-    if (p.mediaType === "RAW") return `/api/preview/${p.id}?w=1024`;
+    if (p.mediaType === "RAW") return `/api/preview/${p.id}?w=1024${qsParam ? `&${qsParam}` : ""}`;
     if (!p.posterUrl) return "";
     return qsParam && p.posterUrl.startsWith("/media/") ? `${p.posterUrl}?${qsParam}` : p.posterUrl;
   };
@@ -212,6 +212,8 @@ export default async function GalleryPage({
           wm,
           pv,
           maxW: collection.user.previewSize,
+          // GLE-116: the client builds /api/wm URLs and must keep the token.
+          qs: qsParam ? qsToken : undefined,
         };
         }),
     }))
@@ -221,7 +223,9 @@ export default async function GalleryPage({
   const coverCandidates = allPhotos.filter((p) => p.mediaType !== "RAW" || p.posterUrl);
   const coverPhoto = collection.coverPhotoId
     ? allPhotos.find((p) => p.id === collection.coverPhotoId) ??
-      (await db.photo.findUnique({ where: { id: collection.coverPhotoId } }).then((p) =>
+      // GLE-116: a visitor's cover must be a photo they may view. The lookup
+      // outside the set filters is for the owner only.
+      (!isOwner ? coverCandidates[0] ?? null : await db.photo.findUnique({ where: { id: collection.coverPhotoId } }).then((p) =>
         p
           ? {
               id: p.id,
@@ -333,7 +337,7 @@ export default async function GalleryPage({
         ? (isOwner ? coverPhoto.url : coverPhoto.posterUrl)
         : coverPhoto?.mediaType === "RAW"
           ? coverPhoto.posterUrl
-          : coverPhoto ? (coverPhoto.wm ? `/api/wm/${coverPhoto.id}?w=2048` : !isOwner ? coverPhoto.url : /\.gif$/i.test(coverPhoto.url) ? coverPhoto.url : `/api/preview/${coverPhoto.id}?w=2560&v=${pv}`) : "",
+          : coverPhoto ? (coverPhoto.wm ? `/api/wm/${coverPhoto.id}?w=2048${qsParam ? `&${qsParam}` : ""}` : !isOwner ? coverPhoto.url : /\.gif$/i.test(coverPhoto.url) ? coverPhoto.url : `/api/preview/${coverPhoto.id}?w=2560&v=${pv}`) : "",
     // A visitor's video cover is its poster image, so it renders as an image.
     coverMediaType: collection.coverImageUrl ? "IMAGE" : coverPhoto?.mediaType === "VIDEO" && !isOwner ? "IMAGE" : coverPhoto?.mediaType ?? "IMAGE",
     coverVideoUrl: collection.coverVideoUrl,

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { photoWatermarked } from "@/lib/watermark";
 import { clampQuality, previewRendition, renditionCached, renditionWidth } from "@/lib/previews";
 import { ensureRawPreview } from "@/lib/raw-preview";
+import { canViewPhotoRendition, isFullyPublicPhoto } from "@/lib/media-access";
 
 export const runtime = "nodejs";
 
@@ -12,12 +13,21 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest, { params }: { params: { photoId: string } }) {
   const photo = await db.photo.findUnique({
     where: { id: params.photoId },
-    include: { collection: { include: { user: { select: { previewSize: true, previewQuality: true } } } } },
+    include: {
+      set: true,
+      collection: { include: { accessGroups: true, user: { select: { previewSize: true, previewQuality: true } } } },
+    },
   });
-  if (!photo || photo.mediaType === "VIDEO") return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const qs = req.nextUrl.searchParams.get("qs") ?? "";
+  // GLE-116: same response for missing and denied, so IDs cannot be probed.
+  if (!photo || photo.mediaType === "VIDEO" || !(await canViewPhotoRendition(photo, qs))) {
+    return NextResponse.json({ error: "Not found" }, { status: 404, headers: { "Cache-Control": "no-store" } });
+  }
   const asked = Number(req.nextUrl.searchParams.get("w")) || 1600;
   if (photoWatermarked(photo.collection.watermark, photo.watermarkMode)) {
-    return NextResponse.redirect(new URL(`/api/wm/${photo.id}?w=${asked}`, req.url), 302);
+    const wmTarget = new URL(`/api/wm/${photo.id}?w=${asked}`, req.url);
+    if (qs) wmTarget.searchParams.set("qs", qs);
+    return NextResponse.redirect(wmTarget, { status: 302, headers: { "Cache-Control": "no-store" } });
   }
   let src = photo.mediaType === "RAW" ? photo.posterUrl : photo.url;
   // RAW uploaded before embedded JPEG extraction: build its preview now.
@@ -26,9 +36,8 @@ export async function GET(req: NextRequest, { params }: { params: { photoId: str
   if (/\.gif$/i.test(src)) {
     // GLE-115: /media checks entitlement, so a Quick Share token must survive the redirect.
     const target = new URL(src, req.url);
-    const qs = req.nextUrl.searchParams.get("qs");
     if (qs) target.searchParams.set("qs", qs);
-    return NextResponse.redirect(target, 302);
+    return NextResponse.redirect(target, { status: 302, headers: { "Cache-Control": "no-store" } });
   }
   const user = photo.collection.user;
   const width = renditionWidth(asked, user.previewSize);
@@ -39,7 +48,8 @@ export async function GET(req: NextRequest, { params }: { params: { photoId: str
   return new NextResponse(new Uint8Array(out), {
     headers: {
       "Content-Type": "image/jpeg",
-      "Cache-Control": "public, max-age=86400",
+      // GLE-116: shared caching only for fully public photos.
+      "Cache-Control": isFullyPublicPhoto(photo) ? "public, max-age=86400" : "private, no-store",
       "X-Preview-Width": String(width),
       "X-Preview-Quality": String(quality),
       "X-Preview-Cache": cached ? "hit" : "miss",

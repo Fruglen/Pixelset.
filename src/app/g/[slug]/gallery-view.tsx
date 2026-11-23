@@ -22,12 +22,13 @@ export type GalleryPhoto = {
   wm?: boolean; // Phase 5B: preview carries the watermark, rendered server side
   pv?: string; // Phase 5B platform: preview rendition version (size-quality)
   maxW?: number; // Phase 5B platform: longest preview edge chosen by the photographer
+  qs?: string; // GLE-116: Quick Share token, required on rendition URLs
 };
 
 /** Best displayable image source for a media item ("" = none, show a tile). */
 function displaySrc(p: GalleryPhoto, width = 1600): string {
   const w = p.maxW ? Math.min(width, p.maxW) : width;
-  if (p.wm && (p.mediaType === "IMAGE" || p.posterUrl)) return `/api/wm/${p.id}?w=${w}${p.pv ? `&v=${p.pv}` : ""}`;
+  if (p.wm && (p.mediaType === "IMAGE" || p.posterUrl)) return `/api/wm/${p.id}?w=${w}${p.pv ? `&v=${p.pv}` : ""}${p.qs ? `&qs=${encodeURIComponent(p.qs)}` : ""}`;
   // Phase 5B platform: sized, photographer controlled preview renditions (GIFs keep their animation).
   // GLE-115: a Quick Share rendition URL carries its token, keep it intact.
   if (p.mediaType === "IMAGE" && p.url.includes("qs=")) return p.url;
