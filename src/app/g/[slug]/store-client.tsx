@@ -409,11 +409,9 @@ function CheckoutDialog({
   const [address, setAddress] = useState("");
   const [coupon, setCoupon] = useState("");
   const [giftCard, setGiftCard] = useState("");
-  const [card, setCard] = useState("4242 4242 4242 4242");
   const [country, setCountry] = useState("US");
   const [region, setRegion] = useState("");
   const [shipSel, setShipSel] = useState<Record<string, string>>({});
-  const [payMethod, setPayMethod] = useState("");
   const [groups, setGroups] = useState<ShippingGroup[]>([]);
   const [payMethods, setPayMethods] = useState<PaymentMethod[]>([]);
   const [taxLabel, setTaxLabel] = useState("");
@@ -436,7 +434,7 @@ function CheckoutDialog({
 
   const lines = cart.map((l) => ({ productId: l.productId, variantId: l.variantId, photoId: l.photoId, qty: l.qty, frame: l.frame ?? "" }));
   const regions = TAX_REGIONS.filter((r) => r.country === country);
-  const extras = { country: country === "OTHER" ? "" : country, region, shipping: shipSel, paymentMethod: payMethod };
+  const extras = { country: country === "OTHER" ? "" : country, region, shipping: shipSel };
 
   const preview = useCallback(async () => {
     const res = await fetch(`/api/gallery/${slug}/checkout`, {
@@ -451,7 +449,6 @@ function CheckoutDialog({
       setGroups(json.shippingGroups ?? []);
       setTaxLabel(json.taxLabel ?? "");
       setPayMethods(json.paymentMethods ?? []);
-      if (!payMethod && json.paymentMethods?.[0]) setPayMethod(json.paymentMethods[0].id);
     } else setError(te(json.error));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coupon, giftCard, slug, JSON.stringify(lines), JSON.stringify(extras)]);
@@ -503,15 +500,12 @@ function CheckoutDialog({
               {done.emailDelivered
                 ? t("confirmEmailSent")
                 : t("noEmailKeep")}{" "}
-              {done.awaitingPayment
-                ? t("dueOffline", { amount: money(done.totals.total) })
-                : done.totals.total > 0
-                  ? t("chargedMock", { amount: money(done.totals.total) })
-                  : t("giftCovered")}
+              {done.awaitingPayment ? t("dueOffline", { amount: money(done.totals.total) }) : t("giftCovered")}
             </p>
           </div>
           {done.awaitingPayment && (
             <div className="border border-amber-200 bg-amber-50 rounded-md p-4 text-sm space-y-1">
+              <p>{t("onlinePayOff")}</p>
               <p className="font-medium">{t("howToPay")}</p>
               <p className="text-neutral-600 whitespace-pre-line">
                 {done.offlineInstructions || t("photographerWillContact")}
@@ -661,42 +655,19 @@ function CheckoutDialog({
           </div>
         )}
 
-        {(totals?.total ?? 1) > 0 && payMethods.length > 1 && (
-          <div>
-            <label className="label">{t("payment")}</label>
-            <div className="flex gap-4 text-sm">
-              {payMethods.map((m) => (
-                <label key={m.id} className="flex items-center gap-2">
-                  <input type="radio" name="pay" checked={payMethod === m.id} onChange={() => setPayMethod(m.id)} />
-                  {m.id === "card" ? t("payCard") : t("payOffline")}
-                </label>
-              ))}
-            </div>
+        {(totals?.total ?? 1) > 0 && (
+          <div className="text-xs text-neutral-600 bg-neutral-50 rounded-md p-3 space-y-1">
+            <p className="font-medium">{t("onlinePayOff")}</p>
+            <p className="whitespace-pre-line">
+              {payMethods.find((m) => m.id === "offline")?.instructions || t("photographerWillContact")}
+            </p>
           </div>
-        )}
-        {(totals?.total ?? 1) > 0 && payMethod === "card" && (
-          <div>
-            <label className="label">{t("cardMock")}</label>
-            <input className="input font-mono" value={card} onChange={(e) => setCard(e.target.value)} />
-          </div>
-        )}
-        {(totals?.total ?? 1) > 0 && payMethod === "offline" && (
-          <p className="text-xs text-neutral-600 bg-neutral-50 rounded-md p-3 whitespace-pre-line">
-            {payMethods.find((m) => m.id === "offline")?.instructions || t("photographerWillContact")}
-          </p>
-        )}
-        {payMethods.length === 0 && (totals?.total ?? 0) > 0 && (
-          <p className="text-xs text-red-600">{t("noPayMethod")}</p>
         )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         {store.termsOfSale && <p className="text-[11px] text-neutral-400">{store.termsOfSale}</p>}
         <button className="btn-primary w-full" disabled={busy}>
-          {busy
-            ? t("placingOrder")
-            : (totals && totals.total === 0) || payMethod === "offline"
-              ? t("placeOrder")
-              : t("payAmount", { amount: totals ? money(totals.total) : "" }).trim()}
+          {busy ? t("placingOrder") : t("placeOrder")}
         </button>
       </form>
     </div>

@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { fmtMoney, logStudioMessage } from "@/lib/studio";
-import { recordPayment, sendBookingConfirmation, sessionDateLabel } from "@/lib/studio-flow";
+import { logStudioMessage } from "@/lib/studio";
+import { sendBookingConfirmation, sessionDateLabel } from "@/lib/studio-flow";
 import { computeSlots, isSlotOpen } from "@/lib/availability";
 import { syncBookingToGoogle } from "@/lib/google-calendar";
 import { notify } from "@/lib/notify";
 
 // Phase 5B: the client side of an Awaiting Client booking. The client answers
-// the questionnaire, signs the contract (via /api/sign), pays the retainer
-// (mocked per the owner's payments exclusion), then confirms, which flips the
-// booking to Confirmed and sends the confirmation email.
+// the questionnaire, signs the contract (via /api/sign), has the retainer
+// recorded by the photographer (online payment is parked), then confirms,
+// which flips the booking to Confirmed and sends the confirmation email.
 
 async function load(token: string) {
   return db.booking.findUnique({
@@ -156,28 +156,16 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 
   if (body.action === "pay") {
     if (b.retainerCents <= 0 || b.paymentStatus !== "UNPAID") return NextResponse.json({ ok: true, paymentStatus: b.paymentStatus });
-    const method = ["card", "paypal", "manual"].includes(body.method) ? body.method : "card";
-    const paid = b.retainerCents >= b.totalCents ? "PAID" : "RETAINER_PAID";
-    await db.booking.update({ where: { id: b.id }, data: { paymentStatus: paid } });
-    await logStudioMessage(b.userId, {
-      kind: "PAYMENT",
-      name: b.contact?.name ?? "",
-      email: b.contact?.email ?? "",
-      subject: `Retainer received: ${fmtMoney(b.retainerCents)}, ${b.title}`,
-      body: `${b.contact?.name ?? "A client"} paid ${fmtMoney(b.retainerCents)} by ${method}.`,
-      meta: `Mock payment · ${method}`,
-    });
-    await recordPayment({
-      userId: b.userId,
-      source: "BOOKING",
-      sourceId: b.id,
-      label: b.title,
-      payerName: b.contact?.name,
-      payerEmail: b.contact?.email,
-      amountCents: b.retainerCents,
-      method,
-    });
-    return NextResponse.json({ ok: true, paymentStatus: paid });
+    // Online payment is parked (GLE-120): the retainer stays UNPAID until the
+    // photographer records it, which then unlocks the "complete" step.
+    return NextResponse.json(
+      {
+        error: "Online payment is not enabled yet. You have not been charged, and your photographer will arrange payment with you.",
+        paymentStatus: b.paymentStatus,
+        onlinePaymentEnabled: false,
+      },
+      { status: 409 }
+    );
   }
 
   if (body.action === "complete") {

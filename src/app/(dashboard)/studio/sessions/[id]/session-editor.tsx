@@ -543,7 +543,7 @@ export function SessionEditor({
           ) : null}
         </div>
         <p className="text-xs text-neutral-500">
-          The retainer is collected in the booking flow (mocked per the owner&rsquo;s payments exclusion); the remainder is due by
+          Online payment is not enabled yet, so collect the retainer directly and record it on the booking; the remainder is due by
           the session date.
         </p>
         <label className="flex items-start gap-2 text-sm">

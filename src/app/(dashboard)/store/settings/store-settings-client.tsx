@@ -118,7 +118,7 @@ export default function StoreSettingsClient({
           Card payments at checkout
         </label>
         <p className="text-xs text-neutral-400 -mt-1 ml-6">
-          Card checkout is mocked per the owner&rsquo;s payments exclusion: the order is recorded as paid and no card is charged.
+          Online card payment is not enabled yet. Orders stay awaiting payment until you mark them paid, whatever this setting says.
         </p>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={offlinePayments} onChange={(e) => setOfflinePayments(e.target.checked)} />

@@ -20,7 +20,10 @@ import { settleOrderMaths } from "@/lib/order-maths";
 import { effectiveVariantPriceCents, parsePackageItems } from "@/lib/store-pricing";
 
 // Public gallery checkout. POST { lines, customer, couponCode, giftCardCode, confirm }
-// confirm=false → totals preview; confirm=true → create the order (mock payment always succeeds).
+// confirm=false → totals preview; confirm=true → create the order.
+// Online payment is parked (GLE-120): no client input can make an order PAID.
+// Anything with a balance is created AWAITING_PAYMENT, with downloads and lab
+// orders held until the photographer records the payment (mark-paid).
 export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
   const collection = await db.collection.findUnique({
     where: { slug: params.slug },
@@ -164,10 +167,8 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
     shippingCents: shippingQuote.total,
     taxShipping: storeProfile.taxShipping,
   });
-  const paymentMethods = [
-    ...(storeProfile.cardPayments ? [{ id: "card", label: "Card (mocked per the owner's payments exclusion)" }] : []),
-    ...(storeProfile.offlinePayments ? [{ id: "offline", label: "Pay offline", instructions: storeProfile.offlineInstructions }] : []),
-  ];
+  // Card is not offered while online payment is parked, whatever the store setting says.
+  const paymentMethods = [{ id: "offline", label: "Pay offline", instructions: storeProfile.offlineInstructions }];
   const meta = {
     shippingGroups: shippingQuote.groups,
     taxLabel: tax.label,
@@ -180,7 +181,7 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
     return NextResponse.json({ totals, ...meta, digitalLicense: storeProfile.digitalLicense });
   }
 
-  // ---- Confirm: validate customer, create the order (mock payment) ----
+  // ---- Confirm: validate customer, create the unpaid order ----
   if (totals.couponError) return NextResponse.json({ error: totals.couponError }, { status: 400 });
   if (totals.giftCardError) return NextResponse.json({ error: totals.giftCardError }, { status: 400 });
 
@@ -194,12 +195,10 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
   if (storeProfile.taxEnabled && storeProfile.taxMode === "AUTO" && !country) {
     return NextResponse.json({ error: "Please choose your country and state or province for tax" }, { status: 400 });
   }
-  let paymentMethod = typeof body.paymentMethod === "string" ? body.paymentMethod : paymentMethods[0]?.id ?? "card";
-  if (totals.total === 0) paymentMethod = "gift card";
-  else if (!paymentMethods.some((m) => m.id === paymentMethod)) {
-    return NextResponse.json({ error: "That payment method is not offered by this store" }, { status: 400 });
-  }
-  const awaiting = paymentMethod === "offline";
+  // The client's paymentMethod is ignored. Only a server-computed zero balance
+  // (fully covered by a validated coupon or gift card) skips AWAITING_PAYMENT.
+  const awaiting = totals.total > 0;
+  const paymentMethod = awaiting ? "offline" : "gift card";
   if (hasPhysical && !shippingAddress) {
     return NextResponse.json({ error: "A shipping address is required for print orders" }, { status: 400 });
   }
@@ -301,8 +300,8 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
     }
   }
 
-  // Self fulfilled and digital revenue is paid to the photographer directly
-  // (mocked per the owner's payments exclusion), recorded as a payout.
+  // Self fulfilled and digital revenue is collected by the photographer
+  // directly, recorded as a payout that settles when they mark the order paid.
   await createPayout({
     userId: collection.userId,
     orderId: order.id,
@@ -312,7 +311,7 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
     ),
     method: paymentMethod,
     awaiting,
-    note: awaiting ? "Offline payment, collect directly from the client" : "Paid to you directly (mocked per the owner's payments exclusion)",
+    note: awaiting ? "Offline payment, collect directly from the client" : "No payment due",
   });
   const money = (c: number) => formatStoreMoney(c, storeProfile.currency);
 
@@ -337,7 +336,7 @@ Thank you for your order from "${collection.name}".
 ${[...lines, ...extraItems].map((l) => `- ${l.productName} (${l.variantName}${l.frameName ? `, ${l.frameName}` : ""}) x ${l.qty}, ${money(l.unitCents * l.qty)}`).join("\n")}
 
 Subtotal: ${money(totals.subtotal)}${totals.discount ? `\nDiscount: -${money(totals.discount)}` : ""}${totals.shipping ? `\nShipping (${shippingQuote.groups.map((g) => g.selectedName).join(", ")}): ${money(totals.shipping)}` : ""}${totals.tax ? `\n${tax.label}: ${money(totals.tax)}` : ""}${totals.giftCard ? `\nGift card: -${money(totals.giftCard)}` : ""}
-${awaiting ? `Total due: ${money(totals.total)}\n\nHow to pay: ${storeProfile.offlineInstructions || "the photographer will contact you with payment details"}.${digitalItems.length ? " Your download links are emailed once payment is received." : ""}` : `Total charged: ${money(totals.total)}`}
+${awaiting ? `Total due: ${money(totals.total)}\n\nYou have not been charged. Online payment is not enabled yet.\nHow to pay: ${storeProfile.offlineInstructions || "the photographer will contact you with payment details"}.${digitalItems.length ? " Your download links are emailed once payment is received." : ""}` : `Total due: ${money(totals.total)}`}
 ${
   digitalItems.length
     ? `\nYour digital downloads (links expire in 7 days):\n${digitalItems
@@ -353,8 +352,8 @@ ${businessName}`,
     name: customerName,
     email: customerEmail,
     subject: `New store order ${order.number}, ${fmtMoney(totals.total)}`,
-    body: `${customerName} ordered ${lines.length} item${lines.length === 1 ? "" : "s"} from “${collection.name}” (${fmtMoney(totals.total)} charged${totals.giftCard ? `, ${fmtMoney(totals.giftCard)} by gift card` : ""}). Fulfillment: ${fulfillment}.${labNote ? ` Lab: ${labNote}.` : ""}`,
-    meta: `${awaiting ? "Offline payment, awaiting" : "Mock payment"} · store · confirmation ${deliveryNote(confirmationMail)}`,
+    body: `${customerName} ordered ${lines.length} item${lines.length === 1 ? "" : "s"} from “${collection.name}” (${fmtMoney(totals.total)} ${awaiting ? "due, not yet paid" : "due"}${totals.giftCard ? `, ${fmtMoney(totals.giftCard)} by gift card` : ""}). Fulfillment: ${fulfillment}.${labNote ? ` Lab: ${labNote}.` : ""}`,
+    meta: `${awaiting ? "Offline payment, awaiting" : "No payment due"} · store · confirmation ${deliveryNote(confirmationMail)}`,
     read: false,
   });
 
@@ -364,6 +363,7 @@ ${businessName}`,
     ...meta,
     paymentMethod,
     awaitingPayment: awaiting,
+    onlinePaymentEnabled: false,
     offlineInstructions: awaiting ? storeProfile.offlineInstructions : "",
     emailDelivered: confirmationMail.sent,
     emailNote: deliveryNote(confirmationMail),

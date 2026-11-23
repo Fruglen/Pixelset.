@@ -22,7 +22,6 @@ export function ManageClient({
   questionnaire,
   contract,
   payment,
-  payMethods,
 }: {
   token: string;
   questionnaire: { name: string; fields: QField[] } | null;
@@ -36,7 +35,6 @@ export function ManageClient({
   const [mode, setMode] = useState<"type" | "draw">("type");
   const [drawn, setDrawn] = useState("");
   const [agree, setAgree] = useState(false);
-  const [method, setMethod] = useState(payMethods.stripe ? "card" : payMethods.paypal ? "paypal" : "manual");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -136,27 +134,10 @@ export function ManageClient({
       {next === "payment" && payment ? (
         <div className="card p-5 space-y-3">
           <h2 className="font-display text-lg">Retainer, {money(payment.cents)}</h2>
-          <div className="space-y-2 text-sm">
-            {payMethods.stripe ? (
-              <label className="flex items-center gap-2">
-                <input type="radio" checked={method === "card"} onChange={() => setMethod("card")} /> Card
-              </label>
-            ) : null}
-            {payMethods.paypal ? (
-              <label className="flex items-center gap-2">
-                <input type="radio" checked={method === "paypal"} onChange={() => setMethod("paypal")} /> PayPal
-              </label>
-            ) : null}
-            {payMethods.manual ? (
-              <label className="flex items-center gap-2">
-                <input type="radio" checked={method === "manual"} onChange={() => setMethod("manual")} /> Pay another way
-              </label>
-            ) : null}
-          </div>
-          <p className="text-xs text-neutral-400">Demo checkout, no real charge is made; the payment is recorded as received.</p>
-          <button className="btn-primary" disabled={busy} onClick={() => post({ action: "pay", method })}>
-            Pay {money(payment.cents)}
-          </button>
+          <p className="text-sm text-neutral-600">
+            Online payment is not enabled yet, and you have not been charged. Your photographer will arrange the retainer with you.
+            Once they record it, you can confirm your booking here.
+          </p>
         </div>
       ) : null}
 

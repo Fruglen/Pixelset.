@@ -164,8 +164,6 @@ export function BookingFlow({
   const [signedName, setSignedName] = useState("");
 
   // payment step
-  const [method, setMethod] = useState(payMethods.stripe ? "card" : payMethods.paypal ? "paypal" : "manual");
-  const [paidStatus, setPaidStatus] = useState("");
 
   // booking coupon (validated by the server, applied to the pre-tax subtotal)
   const [couponInput, setCouponInput] = useState("");
@@ -294,18 +292,9 @@ export function BookingFlow({
     else setStep("done");
   }
 
-  async function payRetainer() {
+  // Online payment is parked (GLE-120): the retainer stays unpaid.
+  function continueWithoutPayment() {
     setError("");
-    setBusy(true);
-    const res = await fetch(`/api/book/${slug}/pay`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingId, method }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) return setError(data.error ?? "Payment failed.");
-    setPaidStatus(data.paymentStatus ?? "RETAINER_PAID");
     setStep("done");
   }
 
@@ -756,39 +745,14 @@ export function BookingFlow({
               </p>
             ) : null}
           </div>
-          <div className="space-y-2">
-            {payMethods.stripe ? (
-              <label className="card flex items-center gap-3 p-3 cursor-pointer text-sm">
-                <input type="radio" name="method" checked={method === "card"} onChange={() => setMethod("card")} />
-                <span>
-                  <span className="font-medium">Card</span>
-                  <span className="text-neutral-500">, Pixora Payments (Stripe-powered)</span>
-                </span>
-              </label>
-            ) : null}
-            {payMethods.paypal ? (
-              <label className="card flex items-center gap-3 p-3 cursor-pointer text-sm">
-                <input type="radio" name="method" checked={method === "paypal"} onChange={() => setMethod("paypal")} />
-                <span className="font-medium">PayPal</span>
-              </label>
-            ) : null}
-            {payMethods.manual ? (
-              <label className="card flex items-start gap-3 p-3 cursor-pointer text-sm">
-                <input type="radio" name="method" className="mt-0.5" checked={method === "manual"} onChange={() => setMethod("manual")} />
-                <span>
-                  <span className="font-medium">Pay another way</span>
-                  {payMethods.manualInstructions ? (
-                    <span className="block text-xs text-neutral-500 mt-0.5">{payMethods.manualInstructions}</span>
-                  ) : null}
-                </span>
-              </label>
-            ) : null}
-          </div>
-          <p className="text-xs text-neutral-400">
-            Demo checkout, no real charge is made; the payment is recorded as received.
+          <p className="text-sm text-neutral-600">
+            Online payment is not enabled yet, and you have not been charged. Your photographer will arrange payment with you.
           </p>
-          <button className="btn-primary w-full" disabled={busy} onClick={payRetainer}>
-            {busy ? "Processing…" : `Pay ${money(retainerCents)}`}
+          {payMethods.manualInstructions ? (
+            <p className="text-xs text-neutral-500 whitespace-pre-line">{payMethods.manualInstructions}</p>
+          ) : null}
+          <button className="btn-primary w-full" onClick={continueWithoutPayment}>
+            Continue
           </button>
         </div>
       ) : null}
@@ -849,13 +813,7 @@ export function BookingFlow({
               {retainerCents > 0 ? (
                 <div className="flex justify-between">
                   <span className="text-neutral-500">Payment</span>
-                  <span className={paidStatus ? "text-emerald-600" : "text-amber-600"}>
-                    {paidStatus
-                      ? paidStatus === "PAID"
-                        ? `Paid ${money(retainerCents)}`
-                        : `Retainer paid ${money(retainerCents)}`
-                      : "Due at session"}
-                  </span>
+                  <span className="text-amber-600">{money(retainerCents)} due, not yet paid</span>
                 </div>
               ) : null}
             </div>
